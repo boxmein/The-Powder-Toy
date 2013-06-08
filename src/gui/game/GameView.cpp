@@ -51,6 +51,23 @@ public:
 	void SetShowSplit(bool split) { showSplit = split; }
 	SplitButtonAction * GetSplitActionCallback() { return splitActionCallback; }
 	void SetSplitActionCallback(SplitButtonAction * newAction) { splitActionCallback = newAction; }
+	void SetToolTip(int x, int y)
+	{
+		if(x >= splitPosition || !showSplit)
+		{
+			if(toolTip2.length()>0 && GetParentWindow())
+			{
+				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip2);
+			}
+		}
+		else if(x < splitPosition)
+		{
+			if(toolTip.length()>0 && GetParentWindow())
+			{
+				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip);
+			}
+		}
+	}
 	virtual void OnMouseUnclick(int x, int y, unsigned int button)
 	{
 		if(isButtonDown)
@@ -63,42 +80,20 @@ public:
 		ui::Button::OnMouseUnclick(x, y, button);
 
 	}
-	virtual void OnMouseMovedInside(int x, int y, int dx, int dy)
+	virtual void OnMouseHover(int x, int y, int dx, int dy)
 	{
-		if(x >= splitPosition || !showSplit)
-		{
-			if(toolTip.length()>0 && GetParentWindow())
-			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip2);
-			}
-		}
-		else if(x < splitPosition)
-		{
-			if(toolTip2.length()>0 && GetParentWindow())
-			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip);
-			}
-		}
+		SetToolTip(x, y);
+	}
+	virtual void OnMouseHover(int x, int y)
+	{
+		SetToolTip(x, y);
 	}
 	virtual void OnMouseEnter(int x, int y)
 	{
 		isMouseInside = true;
 		if(!Enabled)
 			return;
-		if(x >= splitPosition || !showSplit)
-		{
-			if(toolTip.length()>0 && GetParentWindow())
-			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip2);
-			}
-		}
-		else if(x < splitPosition)
-		{
-			if(toolTip2.length()>0 && GetParentWindow())
-			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip);
-			}
-		}
+		SetToolTip(x, y);
 	}
 	virtual void TextPosition()
 	{
@@ -622,7 +617,6 @@ void GameView::NotifyActiveToolsChanged(GameModel * sender)
 		if(sender->GetActiveTool(0) == tool)
 		{
 			toolButtons[i]->SetSelectionState(0);	//Primary
-			c->ActiveToolChanged(0, tool);
 			if (tool->GetIdentifier().find("DEFAULT_UI_WIND") != tool->GetIdentifier().npos)
 				windTool = true;
 			else
@@ -631,18 +625,20 @@ void GameView::NotifyActiveToolsChanged(GameModel * sender)
 		else if(sender->GetActiveTool(1) == tool)
 		{
 			toolButtons[i]->SetSelectionState(1);	//Secondary
-			c->ActiveToolChanged(1, tool);
 		}
 		else if(sender->GetActiveTool(2) == tool)
 		{
 			toolButtons[i]->SetSelectionState(2);	//Tertiary
-			c->ActiveToolChanged(2, tool);
 		}
 		else
 		{
 			toolButtons[i]->SetSelectionState(-1);
 		}
 	}
+	//need to do this for all tools every time just in case it wasn't caught if you weren't in the menu a tool was changed to
+	c->ActiveToolChanged(0, sender->GetActiveTool(0));
+	c->ActiveToolChanged(1, sender->GetActiveTool(1));
+	c->ActiveToolChanged(2, sender->GetActiveTool(2));
 }
 
 void GameView::NotifyLastToolChanged(GameModel * sender)
