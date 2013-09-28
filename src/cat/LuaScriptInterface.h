@@ -42,6 +42,28 @@ class Tool;
 	lua_pushinteger(L, NAME);\
 	lua_setfield(L, -2, #NAME)
 
+// Highlight colours!
+// The format is: \x0f + \xRR + \xGG + \xBB
+// for any given RRGGBB hexadecimal value.
+
+// #F6F080 keywords such as if then else ... 
+#define LUACON_COL_KEYWORD "\x0F\xF6\xF0\x80"
+// #EB7443 values such as nil, false, true and {} 
+#define LUACON_COL_VALUE "\x0F\xEB\x74\x43"
+// #48CFC5 default text colour 
+#define LUACON_COL_DEFAULT "\x0F\x48\xCF\xC5"
+// #B8D977 numbers 
+#define LUACON_COL_NUMBER "\x0F\xB8\xD9\x77"
+// #C7E501 comments 
+#define LUACON_COL_COMMENT "\x0F\xC7\xE5\x01"
+// #E77370 errors. 
+#define LUACON_COL_ERROR "\x0F\xE7\x73\x70"
+// #ACB8B9 stuff like equals signs 
+#define LUACON_COL_ETC "\x0F\xAC\xB8\xB9"
+// #C4E2F2 strings of text! 
+#define LUACON_COL_STRING "\x0f\xC4\xE2\xF2"
+
+
 class TPTScriptInterface;
 class LuaScriptInterface: public CommandInterface
 {

@@ -2993,18 +2993,18 @@ std::string highlight(std::string command)
 			   !strlcmp(wstart,"or",len) || !strlcmp(wstart,"repeat",len) || !strlcmp(wstart,"return",len) ||
 			   !strlcmp(wstart,"then",len) || !strlcmp(wstart,"until",len) || !strlcmp(wstart,"while",len))
 			{
-				result += "\x0F\xFF\xC2\x02";
+				result += LUACON_COL_KEYWORD;
 				result.append(wstart, len);
 				result += "\bw";
 			}
 			else if(!strlcmp(wstart,"false",len) || !strlcmp(wstart,"nil",len) || !strlcmp(wstart,"true",len))
 			{
-				result += "\x0F\xEB\x74\x43";
+				result += LUACON_COL_VALUE;
 				result.append(wstart, len);
 			}
 			else
 			{
-				result += "\x0F\x48\xCF\xC5";
+				result += LUACON_COL_DEFAULT;
 				result.append(wstart, len);
 			}
 			pos += len;
@@ -3019,7 +3019,7 @@ std::string highlight(std::string command)
 				while((w = wstart[len]) && ((w>='0' && w<='9') || (w>='A' && w<='F') || (w>='a' && w<='f')))
 					len++;
 
-				result += "\x0F\xE1\x75\xA9";
+				result += LUACON_COL_NUMBER;
 				result.append(wstart, len);
 				pos += len;
 			}
@@ -3047,7 +3047,7 @@ std::string highlight(std::string command)
 					while((w = wstart[len]) && (w>='0' && w<='9'))
 						len++;
 				}
-				result += "\x0F\xE1\x75\xA9";
+				result += LUACON_COL_NUMBER;
 				result.append(wstart, len);
 				pos += len;
 			}
@@ -3080,7 +3080,7 @@ std::string highlight(std::string command)
 					}
 					len++;
 				}
-				result += "\x0F\xE7\x73\x70";
+				result += LUACON_COL_STRING;
 				result.append(wstart, len);
 				pos += len;
 			}
@@ -3097,7 +3097,7 @@ std::string highlight(std::string command)
 				}
 				if(w==c)
 					len++;
-				result += "\x0F\xE7\x73\x70";
+				result += LUACON_COL_ERROR;
 				result.append(wstart, len);
 				pos += len;
 			}
@@ -3130,7 +3130,8 @@ std::string highlight(std::string command)
 					}
 					len++;
 				}
-				result += "\x0F\xC7\xE5\x01";
+				// Comment colour
+				result += LUACON_COL_COMMENT;
 				result.append(wstart, len);
 				pos += len;
 			}
@@ -3141,25 +3142,28 @@ std::string highlight(std::string command)
 				const char* wstart = raw+pos;
 				while((w = wstart[len]) && (w!='\n'))
 					len++;
-				result += "\x0F\xC7\xE5\x01";
+				result += LUACON_COL_COMMENT;
 				result.append(wstart, len);
 				pos += len;
 			}
 		}
 		else if(c=='{' || c=='}')
 		{
-			result += "\x0F\xEB\x74\x43";
+			result += LUACON_COL_VALUE;
 			result += c;
 			pos++;
 		}
 		else if(c=='.' && raw[pos+1]=='.' && raw[pos+2]=='.')
 		{
-			result += "\x0F\x48\xCF\xC5";
+			result += LUACON_COL_ETC;
+			result += c;
+			result += raw[pos+1];
+			result += raw[pos+2];
 			pos+=3;
 		}
 		else
 		{
-			result += "\x0F\xAC\xB8\xB9";
+			result += LUACON_COL_ETC;
 			result += c;
 			pos++;
 		}
