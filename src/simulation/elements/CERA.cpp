@@ -54,20 +54,14 @@ Element_CERA::Element_CERA()
 // #define UPDATE_FUNC_ARGS Simulation* sim, int i, int x, int y, int surround_space, int nt, Particle *parts, int pmap[YRES][XRES]
 int Element_CERA::update(UPDATE_FUNC_ARGS) 
 {
-  int rx, ry, r; 
+  /*int rx, ry, r; 
 
   for (ry=-1; ry<=1; ry++) {
     for (rx=-1; rx<=1; rx++) {
       if (BOUNDS_CHECK && (rx || ry) && pmap[y+ry][x+rx]) {
-
-        r = pmap[y+ry][x+rx];
-        
-        if ((r&0xFF) == PT_PROT)
-          sim->kill_part(r);
       }
     }
-  }
-
+  }*/
 }
 
 
