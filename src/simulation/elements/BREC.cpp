@@ -49,7 +49,7 @@ Element_BREC::Element_BREC()
 //#TPT-Directive ElementHeader Element_BREC static int update(UPDATE_FUNC_ARGS)
 int Element_BREC::update(UPDATE_FUNC_ARGS)
 {
-	int np;
+	int np, r;
 	if (parts[i].life)
 	{
 		if (sim->pv[y/CELL][x/CELL]>10.0f) 
@@ -62,6 +62,21 @@ int Element_BREC::update(UPDATE_FUNC_ARGS)
 			parts[i].temp += (sim->pv[y/CELL][x/CELL])/8;
 		}
 		
+	}
+
+	// CERA synthesis: if BREL touching LAVA(CLST) then 
+	// turn LAVA(CLST) into LAVA(CERA)
+	for (int ry=-1;ry<=1;ry++) {
+		for (int rx=-1;ry<=1;ry++) {
+			if (BOUNDS_CHECK && (rx || ry) && 
+					pmap[y+ry][x+rx]) {
+				r = pmap[y+ry][x+rx];
+				if ((r&0xFF)==PT_LAVA && parts[r>>8].temp>=2500.0f && 
+						parts[r>>8].ctype == PT_CLST) {
+					parts[r>>8].ctype = PT_CERA;
+				}
+			}
+		}
 	}
 	return 0;
 }
