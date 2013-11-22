@@ -119,8 +119,9 @@ int Element_VIRS::update(UPDATE_FUNC_ARGS)
 						return 1;
 					}
 				}
-				//transforms things into virus here
-				else if ((r&0xFF) != PT_VIRS && (r&0xFF) != PT_VRSS && (r&0xFF) != PT_VRSG && (r&0xFF) != PT_DMND)
+				//transforms things into virus here (CERA is immune to all except VRSG)
+				else if ((r&0xFF) != PT_VIRS && (r&0xFF) != PT_VRSS && (r&0xFF) != PT_VRSG && (r&0xFF) != PT_DMND && 
+					((r&0xFF) != PT_CERA && parts[r>>8].temp < 673.0f))
 				{
 					if (!((rndstore&0xF)>>1))
 					{
@@ -139,6 +140,7 @@ int Element_VIRS::update(UPDATE_FUNC_ARGS)
 					}
 					rndstore = rndstore >> 5;
 				}
+
 				//protons make VIRS last forever
 				else if ((sim->photons[y+ry][x+rx]&0xFF) == PT_PROT)
 				{

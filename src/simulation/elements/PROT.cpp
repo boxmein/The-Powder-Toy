@@ -87,7 +87,8 @@ int Element_PROT::update(UPDATE_FUNC_ARGS)
 	} 
 	else if ((under&0xFF) == PT_EXOT)
 		parts[under>>8].ctype = PT_PROT;
-
+	else if ((under&0xFF) == PT_CERA)
+		sim->kill_part(i);
 	//make temp of other things closer to it's own temperature. This will change temp of things that don't conduct, and won't change the PROT's temperature
 	if (under)
 	{
