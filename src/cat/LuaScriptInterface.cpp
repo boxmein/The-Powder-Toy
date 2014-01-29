@@ -484,6 +484,8 @@ void LuaScriptInterface::initSimulationAPI()
 		{"pmap", simulation_pmap},
 		{"neighbours", simulation_neighbours},
 		{"neighbors", simulation_neighbours},
+		{"get_clipboard", &luatpt_getclip}, 
+		{"set_clipboard", &luatpt_setclip},
 		{NULL, NULL}
 	};
 	luaL_register(l, "simulation", simulationAPIMethods);
