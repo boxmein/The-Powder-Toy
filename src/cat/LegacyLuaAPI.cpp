@@ -2037,12 +2037,13 @@ int luatpt_screenshot(lua_State* l)
 	return 0;
 }
 
-int luatpt_getclip (lua_State* l) {
-	lua_pushstring(l, ClipboardPull());
-	return 1; 
-}
-
-int luatpt_setclip (lua_State* l) {
+int luatpt_clipboard (lua_State* l) {
+	// Getter
+	if (lua_isnoneornil(l, 1)) {
+		lua_pushstring(l, ClipboardPull());
+		return 1; 
+	}
+	// Setter
 	luaL_checktype(l, 1, LUA_TSTRING);
 	ClipboardPush((char*) std::string(luaL_optstring(l, 1, "")).c_str());
 	return 0;

@@ -182,6 +182,7 @@ LuaScriptInterface::LuaScriptInterface(GameController * c, GameModel * m):
 		{"element",&luatpt_getelement},
 		{"element_func",&luatpt_element_func},
 		{"graphics_func",&luatpt_graphics_func},
+		{"clipboard", &luatpt_clipboard},
 		{NULL,NULL}
 	};
 
@@ -484,8 +485,6 @@ void LuaScriptInterface::initSimulationAPI()
 		{"pmap", simulation_pmap},
 		{"neighbours", simulation_neighbours},
 		{"neighbors", simulation_neighbours},
-		{"get_clipboard", &luatpt_getclip}, 
-		{"set_clipboard", &luatpt_setclip},
 		{NULL, NULL}
 	};
 	luaL_register(l, "simulation", simulationAPIMethods);
