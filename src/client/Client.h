@@ -40,9 +40,9 @@ public:
 	int Build;
 	int Time;
 	BuildType Type;
-	UpdateInfo() : Major(0), Minor(0), Build(0), Time(0), File(""), Type(Stable) {}
-	UpdateInfo(int major, int minor, int build, std::string file, BuildType type) : Major(major), Minor(minor), Build(build), Time(0), File(file), Type(type) {}
-	UpdateInfo(int time, std::string file, BuildType type) : Major(0), Minor(0), Build(0), Time(time), File(file), Type(type) {}
+	UpdateInfo() : File(""), Major(0), Minor(0), Build(0), Time(0), Type(Stable) {}
+	UpdateInfo(int major, int minor, int build, std::string file, BuildType type) : File(file), Major(major), Minor(minor), Build(build), Time(0), Type(type) {}
+	UpdateInfo(int time, std::string file, BuildType type) : File(file), Major(0), Minor(0), Build(0), Time(time), Type(type) {}
 };
 
 class RequestListener;
@@ -60,7 +60,7 @@ private:
 	std::string lastError;
 
 	std::list<std::string> stampIDs;
-	int lastStampTime;
+	unsigned lastStampTime;
 	int lastStampName;
 
 	//Auth session
@@ -73,7 +73,6 @@ private:
 	int activeThumbRequestTimes[IMGCONNS];
 	int activeThumbRequestCompleteTimes[IMGCONNS];
 	std::string activeThumbRequestIDs[IMGCONNS];
-	void updateStamps();
 	static std::vector<std::string> explodePropertyString(std::string property);
 	void notifyUpdateAvailable();
 	void notifyAuthUserChanged();
@@ -129,6 +128,7 @@ public:
 	int GetStampsCount();
 	SaveFile * GetFirstStamp();
 	void MoveStampToFront(std::string stampID);
+	void updateStamps();
 
 	RequestStatus AddComment(int saveID, std::string comment);
 
@@ -157,6 +157,7 @@ public:
 	RequestStatus DeleteSave(int saveID);
 	RequestStatus ReportSave(int saveID, std::string message);
 	RequestStatus UnpublishSave(int saveID);
+	RequestStatus PublishSave(int saveID);
 	RequestStatus FavouriteSave(int saveID, bool favourite);
 	void SetAuthUser(User user);
 	User GetAuthUser();
