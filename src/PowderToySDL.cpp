@@ -9,8 +9,11 @@
 #include "SDL.h"
 #endif
 #ifdef WIN
-#define _WIN32_WINNT 0x0501	//Necessary for some macros and functions, tells windows.h to include functions only available in Windows XP or later
 #include <direct.h>
+#define _WIN32_WINNT 0x0501 //Necessary for some macros and functions, tells windows.h to include functions only available in Windows XP or later
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h> // required for HDROP
 #endif
 #include <iostream>
 #include <sstream>
@@ -63,6 +66,11 @@ using namespace std;
 #if defined(USE_SDL) && defined(LIN) && defined(SDL_VIDEO_DRIVER_X11)
 SDL_SysWMinfo sdl_wminfo;
 Atom XA_CLIPBOARD, XA_TARGETS, XA_UTF8_STRING;
+#endif
+
+#ifdef WIN
+bool dragDropOn = false;
+WNDPROC oldWndProc = NULL;
 #endif
 
 std::string clipboardText = "";
@@ -474,8 +482,9 @@ void EventProcess(SDL_Event event)
 	switch (event.type)
 	{
 	case SDL_QUIT:
-		if (engine->GetFastQuit() || engine->CloseWindow())
+		if (engine->GetFastQuit() || engine->CloseWindow()) {
 			engine->Exit();
+    }
 		break;
 	case SDL_KEYDOWN:
 		engine->onKeyPress(event.key.keysym.sym, event.key.keysym.unicode, event.key.keysym.mod&KEY_MOD_SHIFT, event.key.keysym.mod&KEY_MOD_CONTROL, event.key.keysym.mod&KEY_MOD_ALT);
@@ -823,6 +832,50 @@ void MoveToDataDir(std::string luascript) {
 
 }
 
+#ifdef WIN
+
+// handle drop file
+void onDropFile(HDROP hdrop) {
+  TCHAR filename[MAX_PATH];
+
+  if (DragQueryFile(hdrop, 0, filename, MAX_PATH) > 0) {
+    // here's the filename
+    printf("Someone dragged a file: %s", filename);
+    // this is always the best course of action
+    BlueScreen(filename);
+  }
+
+  DragFinish(hdrop);
+}
+
+// Subclass procedure for window messages (filtering only drag and drop)
+LRESULT CALLBACK subWndProc ( HWND hwnd,
+                              UINT msg,
+                              WPARAM wparam,
+                              LPARAM lparam,
+                              UINT_PTR uIdSubclass,
+                              DWORD_PTR dwRefData) {
+  switch (msg) {
+    case WM_DROPFILES:
+      onDropFile((HDROP) wparam);
+      break;
+
+    default:
+      if (oldWndProc != NULL) {
+        return CallWindowProc(oldWndProc, hwnd, msg, wparam, lparam);
+      } else {
+        return DefWindowProc(hwnd, msg, wparam, lparam);
+      }
+      break;
+  }
+
+  return 0;
+}
+
+#endif
+
+
+
 int main(int argc, char * argv[])
 {
 	currentWidth = WINDOWW;
@@ -903,6 +956,29 @@ int main(int argc, char * argv[])
 	LoadWindowPosition(tempScale);
 #endif
 	sdl_scrn = SDLSetScreen(tempScale, tempFullscreen);
+
+#ifdef WIN
+  // hook some handlers to drag and drop
+
+  // SDL_SysWMinfo syswminfo;
+  // SDL_GetWMInfo(&syswminfo);
+  // HWND hWnd = syswminfo.window;
+
+  // ^ that and v that give different results. WTF?
+  HWND hWnd = FindWindow(NULL, "The Powder Toy");
+
+  // we're gonna crash before stdout is cleared
+  setbuf(stdout, NULL);
+
+  // get the existing WndProc to augment and re-call later
+  // ..and set a new value to our custom wndproc
+  oldWndProc = (WNDPROC) SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG_PTR) subWndProc);
+
+  printf("oldWndProc = %p", oldWndProc);
+
+  DragAcceptFiles(hWnd, TRUE);
+  dragDropOn = true;
+#endif
 
 #ifdef OGLI
 	SDL_GL_SetAttribute (SDL_GL_DOUBLEBUFFER, 1);
