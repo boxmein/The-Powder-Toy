@@ -14,6 +14,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <string>
 #include "Config.h"
 #include "graphics/Graphics.h"
@@ -29,7 +30,7 @@
 #include <ApplicationServices/ApplicationServices.h>
 extern "C" {
 	char * readClipboard();
-	void writeClipboard(const char * clipboardData);	
+	void writeClipboard(const char * clipboardData);
 }
 #endif
 
@@ -589,7 +590,7 @@ void EngineProcess()
 
 		engine->Tick();
 		engine->Draw();
-		
+
 		if(scale != engine->Scale || fullscreen != engine->Fullscreen)
 		{
 			sdl_scrn = SDLSetScreen(engine->Scale, engine->Fullscreen);
@@ -649,7 +650,7 @@ bool LoadWindowPosition(int scale)
 
 		int savedWindowX = Client::Ref().GetPrefInteger("WindowX", INT_MAX);
 		int savedWindowY = Client::Ref().GetPrefInteger("WindowY", INT_MAX);
-		
+
 		// Center the window on the primary desktop by default
 		int newWindowX = (desktopWidth - windowW) / 2;
 		int newWindowY = (desktopHeight - windowH) / 2;
@@ -683,7 +684,7 @@ bool LoadWindowPosition(int scale)
 				}
 			}
 		}
-		
+
 		SetWindowPos(sysInfo.window, 0, newWindowX, newWindowY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 
 		// True if we didn't use the default, i.e. the position was valid
@@ -726,7 +727,7 @@ void BlueScreen(const char * detailMessage){
 	int currentY = 0, width, height;
 	int errorWidth = 0;
 	Graphics::textsize(errorHelp.c_str(), errorWidth, height);
-	
+
 	engine->g->drawtext((engine->GetWidth()/2)-(errorWidth/2), ((engine->GetHeight()/2)-100) + currentY, errorTitle.c_str(), 255, 255, 255, 255);
 	Graphics::textsize(errorTitle.c_str(), width, height);
 	currentY += height + 4;
@@ -738,9 +739,9 @@ void BlueScreen(const char * detailMessage){
 	engine->g->drawtext((engine->GetWidth()/2)-(errorWidth/2), ((engine->GetHeight()/2)-100) + currentY, errorHelp.c_str(), 255, 255, 255, 255);
 	Graphics::textsize(errorTitle.c_str(), width, height);
 	currentY += height + 4;
-	
+
 	//Death loop
-	SDL_Event event;	
+	SDL_Event event;
 	while(true)
 	{
 		while (SDL_PollEvent(&event))
@@ -775,11 +776,75 @@ void SigHandler(int signal)
 	}
 }
 
+void MoveToDataDir(std::string luascript) {
+  ifstream from;
+  ofstream to;
+
+  const string this_dir = "./";
+
+  size_t offset = luascript.find_last_of('/', string::npos);
+
+#ifdef WIN
+  if (offset == string::npos) {
+    offset = luascript.find_last_of('\\', string::npos);
+  }
+#endif
+
+  // probably in the current directory or not the argument we're looking for
+  if (offset == string::npos) {
+    return;
+  }
+
+  string basename = luascript.substr(offset + 1);
+
+  from.open(luascript.c_str(), istream::in | istream::binary);
+  to.open((this_dir + basename).c_str(), ostream::out | ostream::binary);
+
+  if (from.is_open() && to.is_open() &&
+      from.good() && to.good()) {
+
+    const size_t bufsize = 4096;
+
+    // let's limit the size so we don't crash on a seemingly infinite file
+    size_t toobig = 65536;
+
+    char buffer[bufsize];
+
+    while (!from.eof() && toobig > 0) {
+      from.read(buffer, bufsize);
+      to.write(buffer, bufsize);
+
+      toobig -= bufsize;
+    }
+  }
+
+  from.close();
+  to.close();
+
+}
+
 int main(int argc, char * argv[])
 {
-	currentWidth = WINDOWW; 
+	currentWidth = WINDOWW;
 	currentHeight = WINDOWH;
 
+  // if there's only one argument, see if the argument is a lua script
+  if (argc == 2) {
+    std::string potentialLuaScript (argv[1]);
+    const std::string suffix (".lua");
+
+    if (potentialLuaScript.size() > suffix.size() &&
+        potentialLuaScript.compare(
+          potentialLuaScript.size() - suffix.size(),
+          suffix.size(),
+          suffix) == 0) {
+      try {
+        MoveToDataDir(potentialLuaScript);
+      } catch (std::exception & e) {
+        fprintf(stderr, "Error moving the lua script around: %s\n", e.what());
+      }
+    }
+  }
 
 	std::map<std::string, std::string> arguments = readArguments(argc, argv);
 
@@ -815,7 +880,7 @@ int main(int argc, char * argv[])
 		if(arguments["proxy"] == "false")
 		{
 			proxyString = "";
-			Client::Ref().SetPref("Proxy", "");	
+			Client::Ref().SetPref("Proxy", "");
 		}
 		else
 		{
@@ -987,7 +1052,7 @@ int main(int argc, char * argv[])
 		SDL_GetMouseState(&sdl_x, &sdl_y);
 		engine->onMouseMove(sdl_x*inputScale, sdl_y*inputScale);
 		EngineProcess();
-		
+
 #ifdef WIN
 		SaveWindowPosition();
 #endif
@@ -999,7 +1064,7 @@ int main(int argc, char * argv[])
 		BlueScreen(e.what());
 	}
 #endif
-	
+
 	ui::Engine::Ref().CloseWindow();
 	delete gameController;
 	delete ui::Engine::Ref().g;
