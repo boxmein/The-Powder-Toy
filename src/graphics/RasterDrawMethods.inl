@@ -16,7 +16,6 @@ int PIXELMETHODS_CLASS::drawtext(int x, int y, const char *s, int r, int g, int 
 {
 	if(!strlen(s))
 		return 0;
-	int width, height;
 
 	int invert = 0;
 	int oR = r, oG = g, oB = b;
@@ -111,7 +110,7 @@ int PIXELMETHODS_CLASS::drawtext(int x, int y, std::string s, int r, int g, int 
 int PIXELMETHODS_CLASS::drawchar(int x, int y, int c, int r, int g, int b, int a)
 {
 	int i, j, w, bn = 0, ba = 0;
-	char *rp = font_data + font_ptrs[c];
+	unsigned char *rp = font_data + font_ptrs[c];
 	w = *(rp++);
 	for (j=0; j<FONT_H; j++)
 		for (i=0; i<w; i++)
@@ -131,7 +130,7 @@ int PIXELMETHODS_CLASS::drawchar(int x, int y, int c, int r, int g, int b, int a
 int PIXELMETHODS_CLASS::addchar(int x, int y, int c, int r, int g, int b, int a)
 {
 	int i, j, w, bn = 0, ba = 0;
-	char *rp = font_data + font_ptrs[c];
+	unsigned char *rp = font_data + font_ptrs[c];
 	w = *(rp++);
 	for (j=0; j<FONT_H; j++)
 		for (i=0; i<w; i++)
@@ -418,8 +417,30 @@ void PIXELMETHODS_CLASS::gradientrect(int x, int y, int width, int height, int r
 void PIXELMETHODS_CLASS::clearrect(int x, int y, int w, int h)
 {
 	int i;
-	for (i=1; i<h; i++)
-		memset(vid+(x+1+(VIDXRES)*(y+i)), 0, PIXELSIZE*(w-1));
+
+	// TODO: change calls to clearrect to use sensible meanings of x, y, w, h then remove these 4 lines
+	x += 1;
+	y += 1;
+	w -= 1;
+	h -= 1;
+
+	if (x+w > VIDXRES) w = VIDXRES-x;
+	if (y+h > VIDYRES) h = VIDYRES-y;
+	if (x<0)
+	{
+		w += x;
+		x = 0;
+	}
+	if (y<0)
+	{
+		h += y;
+		y = 0;
+	}
+	if (w<0 || h<0)
+		return;
+
+	for (i=0; i<h; i++)
+		memset(vid+(x+(VIDXRES)*(y+i)), 0, PIXELSIZE*w);
 }
 
 void PIXELMETHODS_CLASS::draw_image(pixel *img, int x, int y, int w, int h, int a)

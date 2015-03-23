@@ -71,7 +71,10 @@ int Element_PHOT::update(UPDATE_FUNC_ARGS)
 						parts[i].vy *= 0.90;
 						sim->create_part(r>>8, x+rx, y+ry, PT_PHOT);
 						rrr = (rand()%360)*3.14159f/180.0f;
-						rr = (rand()%128+128)/127.0f;
+						if ((r&0xFF) == PT_ISOZ)
+							rr = (rand()%128+128)/127.0f;
+						else
+							rr = (rand()%228+128)/127.0f;
 						parts[r>>8].vx = rr*cosf(rrr);
 						parts[r>>8].vy = rr*sinf(rrr);
 						sim->pv[y/CELL][x/CELL] -= 15.0f * CFDS;
@@ -120,7 +123,11 @@ int Element_PHOT::graphics(GRAPHICS_FUNC_ARGS)
 	*fireb = *colb;
 
 	*pixel_mode &= ~PMODE_FLAT;
-	*pixel_mode |= FIRE_ADD | PMODE_ADD;
+	*pixel_mode |= FIRE_ADD | PMODE_ADD | NO_DECO;
+	if (cpart->flags & FLAG_PHOTDECO)
+	{
+		*pixel_mode &= ~NO_DECO;
+	}
 	return 0;
 }
 

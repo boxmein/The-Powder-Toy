@@ -36,10 +36,14 @@ def generateElements(elementFiles, outputCpp, outputH):
 			directives.append(match.split(" "))
 
 	classDirectives = []
+	usedIDs = []
 	for d in directives:
 		if d[0] == "ElementClass":
-			d[3] = string.atoi(d[3])
+			d[3] = int(d[3])
 			classDirectives.append(d)
+			if d[3] in usedIDs:
+				print("WARNING: duplicate element ID {} ({})".format(d[3],d[2]))
+			usedIDs.append(d[3])
 
 	elementIDs = sorted(classDirectives, key=lambda directive: directive[3])
 
@@ -69,7 +73,7 @@ def generateElements(elementFiles, outputCpp, outputH):
 				baseClass = classBits[1]
 			else:
 				newClass = tmpClass
-			elementClasses[newClass].append(string.join(d[2:], " ")+";")
+			elementClasses[newClass].append(" ".join(d[2:])+";")
 
 	#for className, classMembers in elementClasses.items():
 	for d in elementIDs:
@@ -94,7 +98,7 @@ public:
 	virtual ~{0}();
 	{2}
 }};
-""".format(className, elementBase, string.join(classMembers, "\n\t"))
+""".format(className, elementBase, str.join("\n\t", classMembers))
 
 	elementHeader += """
 std::vector<Element> GetElements();
@@ -168,18 +172,22 @@ def generateTools(toolFiles, outputCpp, outputH):
 			directives.append(match.split(" "))
 	
 	classDirectives = []
+	usedIDs = []
 	for d in directives:
 		if d[0] == "ToolClass":
 			toolClasses[d[1]] = []
 			toolHeader += "#define %s %s\n" % (d[2], d[3])
-			d[3] = string.atoi(d[3])
+			d[3] = int(d[3])
 			classDirectives.append(d)
+			if d[3] in usedIDs:
+				print("WARNING: duplicate tool ID {} ({})".format(d[3],d[2]))
+			usedIDs.append(d[3])
 	
 	for d in directives:
 		if d[0] == "ToolHeader":
-			toolClasses[d[1]].append(string.join(d[2:], " ")+";")
+			toolClasses[d[1]].append(" ".join(d[2:])+";")
 	
-	for className, classMembers in toolClasses.items():
+	for className, classMembers in list(toolClasses.items()):
 		toolHeader += """
 class {0}: public SimTool
 {{
@@ -188,7 +196,7 @@ public:
 	virtual ~{0}();
 	virtual int Perform(Simulation * sim, Particle * cpart, int x, int y, float strength);
 }};
-""".format(className, string.join(classMembers, "\n"))
+""".format(className, str.join("\n", classMembers))
 	
 	toolHeader += """
 std::vector<SimTool*> GetTools();
@@ -223,11 +231,5 @@ std::vector<SimTool*> GetTools()
 	f.write(toolContent)
 	f.close()
 
-if(len(sys.argv) > 3):
-    if(sys.argv[1] == "elements"):
-    	generateElements(sys.argv[4:], sys.argv[2], sys.argv[3])
-    elif(sys.argv[1] == "tools"):
-    	generateTools(sys.argv[4:], sys.argv[2], sys.argv[3])
-else:
-	generateElements(os.listdir("src/simulation/elements"), "generated/ElementClasses.cpp", "generated/ElementClasses.h")
-	generateTools(os.listdir("src/simulation/simtools"), "generated/ToolClasses.cpp", "generated/ToolClasses.h")
+generateElements(os.listdir("src/simulation/elements"), "generated/ElementClasses.cpp", "generated/ElementClasses.h")
+generateTools(os.listdir("src/simulation/simtools"), "generated/ToolClasses.cpp", "generated/ToolClasses.h")

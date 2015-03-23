@@ -1,12 +1,7 @@
 #ifndef LUASCRIPTINTERFACE_H_
 #define LUASCRIPTINTERFACE_H_
 
-extern "C"
-{
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
-}
+#include "LuaCompat.h"
 
 #include "CommandInterface.h"
 #include "simulation/Simulation.h"
@@ -82,12 +77,14 @@ class LuaScriptInterface: public CommandInterface
 	static int simulation_decoBox(lua_State * l);
 	static int simulation_decoColor(lua_State * l);
 	static int simulation_clearSim(lua_State * l);
+	static int simulation_clearRect(lua_State * l);
 	static int simulation_resetTemp(lua_State * l);
 	static int simulation_resetPressure(lua_State * l);
 	static int simulation_saveStamp(lua_State * l);
 	static int simulation_loadStamp(lua_State * l);
 	static int simulation_deleteStamp(lua_State * l);
 	static int simulation_loadSave(lua_State * l);
+	static int simulation_reloadSave(lua_State * l);
 	static int simulation_getSaveID(lua_State * l);
 	static int simulation_adjustCoords(lua_State * l);
 	static int simulation_prettyPowders(lua_State * l);
@@ -101,7 +98,9 @@ class LuaScriptInterface: public CommandInterface
 	static int simulation_canMove(lua_State * l);
 	static int simulation_parts(lua_State * l);
 	static int simulation_pmap(lua_State * l);
+	static int simulation_photons(lua_State * l);
 	static int simulation_neighbours(lua_State * l);
+	static int simulation_framerender(lua_State * l);
 
 	//Renderer
 	void initRendererAPI();
@@ -135,6 +134,8 @@ class LuaScriptInterface: public CommandInterface
 	static int graphics_fillRect(lua_State * l);
 	static int graphics_drawCircle(lua_State * l);
 	static int graphics_fillCircle(lua_State * l);
+	static int graphics_getColors(lua_State * l);
+	static int graphics_getHexColor(lua_State * l);
 
 	void initFileSystemAPI();
 	static int fileSystem_list(lua_State * l);
@@ -148,6 +149,9 @@ class LuaScriptInterface: public CommandInterface
 	static int fileSystem_copy(lua_State * l);
 
 public:
+	int tpt_index(lua_State *l);
+	int tpt_newIndex(lua_State *l);
+
 	ui::Window * Window;
 	lua_State *l;
 	LuaScriptInterface(GameController * c, GameModel * m);
@@ -159,6 +163,7 @@ public:
 	virtual bool OnMouseWheel(int x, int y, int d);
 	virtual bool OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt);
 	virtual bool OnKeyRelease(int key, Uint16 character, bool shift, bool ctrl, bool alt);
+	virtual bool OnMouseTick();
 	virtual void OnTick();
 	virtual void Init();
 	virtual void SetWindow(ui::Window * window);

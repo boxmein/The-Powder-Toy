@@ -1,10 +1,4 @@
 #ifdef LUACONSOLE
-extern "C"
-{
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
-}
 
 #include <iostream>
 #include "LuaScriptInterface.h"
@@ -61,10 +55,20 @@ LuaWindow::LuaWindow(lua_State * l) :
 	onKeyReleaseFunction(0)
 {
 	this->l = l;
-	int posX = luaL_optinteger(l, 1, 0);
-	int posY = luaL_optinteger(l, 2, 0);
+	int posX = luaL_optinteger(l, 1, 1);
+	int posY = luaL_optinteger(l, 2, 1);
 	int sizeX = luaL_optinteger(l, 3, 10);
 	int sizeY = luaL_optinteger(l, 4, 10);
+
+	// We should replace this with errors
+	if (posX < 1)
+		posX = 1;
+	if (posY < 1)
+		posY = 1;
+	if (sizeX < 10)
+		sizeX = 10;
+	if (sizeY < 10)
+		sizeY = 10;
 
 	lua_pushstring(l, "Luacon_ci");
 	lua_gettable(l, LUA_REGISTRYINDEX);
@@ -105,17 +109,17 @@ int LuaWindow::addComponent(lua_State * l)
 {
 	void * luaComponent = NULL;
 	ui::Component * component = NULL;
-	if(luaComponent = Luna<LuaButton>::tryGet(l, 1))
+	if ((luaComponent = Luna<LuaButton>::tryGet(l, 1)))
 		component = Luna<LuaButton>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaLabel>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaLabel>::tryGet(l, 1)))
 		component = Luna<LuaLabel>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaTextbox>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaTextbox>::tryGet(l, 1)))
 		component = Luna<LuaTextbox>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaCheckbox>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaCheckbox>::tryGet(l, 1)))
 		component = Luna<LuaCheckbox>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaSlider>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaSlider>::tryGet(l, 1)))
 		component = Luna<LuaSlider>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaProgressBar>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaProgressBar>::tryGet(l, 1)))
 		component = Luna<LuaProgressBar>::get(luaComponent)->GetComponent();
 	else
 		luaL_typerror(l, 1, "Component");
@@ -128,17 +132,17 @@ int LuaWindow::removeComponent(lua_State * l)
 {
 	void * luaComponent = NULL;
 	ui::Component * component = NULL;
-	if(luaComponent = Luna<LuaButton>::tryGet(l, 1))
+	if ((luaComponent = Luna<LuaButton>::tryGet(l, 1)))
 		component = Luna<LuaButton>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaLabel>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaLabel>::tryGet(l, 1)))
 		component = Luna<LuaLabel>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaTextbox>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaTextbox>::tryGet(l, 1)))
 		component = Luna<LuaTextbox>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaCheckbox>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaCheckbox>::tryGet(l, 1)))
 		component = Luna<LuaCheckbox>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaSlider>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaSlider>::tryGet(l, 1)))
 		component = Luna<LuaSlider>::get(luaComponent)->GetComponent();
-	else if(luaComponent = Luna<LuaProgressBar>::tryGet(l, 1))
+	else if ((luaComponent = Luna<LuaProgressBar>::tryGet(l, 1)))
 		component = Luna<LuaProgressBar>::get(luaComponent)->GetComponent();
 	else
 		luaL_typerror(l, 1, "Component");
@@ -154,7 +158,14 @@ int LuaWindow::position(lua_State * l)
 	{
 		luaL_checktype(l, 1, LUA_TNUMBER);
 		luaL_checktype(l, 2, LUA_TNUMBER);
-		window->Position = ui::Point(lua_tointeger(l, 1), lua_tointeger(l, 2));
+		int posX = lua_tointeger(l, 1);
+		int posY = lua_tointeger(l, 2);
+
+		if (posX < 1 || posY < 1)
+		{
+			return luaL_error(l, "Invalid position: '%d,%d'", posX, posY);
+		}
+		window->Position = ui::Point(posX, posY);
 		return 0;
 	}
 	else
@@ -172,7 +183,14 @@ int LuaWindow::size(lua_State * l)
 	{
 		luaL_checktype(l, 1, LUA_TNUMBER);
 		luaL_checktype(l, 2, LUA_TNUMBER);
-		window->Size = ui::Point(lua_tointeger(l, 1), lua_tointeger(l, 2));
+		int sizeX = lua_tointeger(l, 1);
+		int sizeY = lua_tointeger(l, 2);
+
+		if (sizeX < 10 || sizeY < 10)
+		{
+			return luaL_error(l, "Invalid size: '%d,%d'", sizeX, sizeY);
+		}
+		window->Size = ui::Point(sizeX, sizeY);
 		return 0;
 	}
 	else

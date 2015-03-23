@@ -3,10 +3,13 @@
 #include <map>
 #include <string>
 #include <time.h>
+#ifdef SDL_INC
+#include "SDL/SDL.h"
+#else
 #include "SDL.h"
+#endif
 #ifdef WIN
 #define _WIN32_WINNT 0x0501	//Necessary for some macros and functions, tells windows.h to include functions only available in Windows XP or later
-#include "SDL_syswm.h"
 #include <direct.h>
 #endif
 #include <iostream>
@@ -49,15 +52,19 @@ extern "C" {
 
 using namespace std;
 
-#if defined(USE_SDL) && defined(LIN)
+#if defined(WIN) || defined(LIN)
+#ifdef SDL_INC
+#include <SDL/SDL_syswm.h>
+#else
 #include <SDL_syswm.h>
+#endif
 #endif
 #if defined(USE_SDL) && defined(LIN) && defined(SDL_VIDEO_DRIVER_X11)
 SDL_SysWMinfo sdl_wminfo;
 Atom XA_CLIPBOARD, XA_TARGETS, XA_UTF8_STRING;
 #endif
 
-char *clipboardText = NULL;
+std::string clipboardText = "";
 
 int desktopWidth = 1280, desktopHeight = 1024;
 
@@ -65,15 +72,11 @@ SDL_Surface * sdl_scrn;
 int scale = 1;
 bool fullscreen = false;
 
-void ClipboardPush(char * text)
+void ClipboardPush(std::string text)
 {
-	if (clipboardText != NULL) {
-		free(clipboardText);
-		clipboardText = NULL;
-	}
-	clipboardText = mystrdup(text);
+	clipboardText = text;
 #ifdef MACOSX
-	writeClipboard(text);
+	writeClipboard(text.c_str());
 #elif defined(WIN)
 	if (OpenClipboard(NULL))
 	{
@@ -82,10 +85,10 @@ void ClipboardPush(char * text)
 
 		EmptyClipboard();
 
-		cbuffer = GlobalAlloc(GMEM_DDESHARE, strlen(text)+1);
+		cbuffer = GlobalAlloc(GMEM_DDESHARE, text.size() + 1);
 		glbuffer = (char*)GlobalLock(cbuffer);
 
-		strcpy(glbuffer, text);
+		strcpy(glbuffer, text.c_str());
 
 		GlobalUnlock(cbuffer);
 		SetClipboardData(CF_TEXT, cbuffer);
@@ -97,18 +100,17 @@ void ClipboardPush(char * text)
 	XFlush(sdl_wminfo.info.x11.display);
 	sdl_wminfo.info.x11.unlock_func();
 #else
-	printf("Not implemented: put text on clipboard \"%s\"\n", text);
+	printf("Not implemented: put text on clipboard \"%s\"\n", text.c_str());
 #endif
 }
 
 void EventProcess(SDL_Event event);
 
-char * ClipboardPull()
+std::string ClipboardPull()
 {
 #ifdef MACOSX
-	char * data = readClipboard();
-	if(!data) return mystrdup("");
-	return mystrdup(data);
+	const char *text = readClipboard();
+	return text ? std::string(text) : "";
 #elif defined(WIN)
 	if (OpenClipboard(NULL))
 	{
@@ -119,14 +121,10 @@ char * ClipboardPull()
 		glbuffer = (char*)GlobalLock(cbuffer);
 		GlobalUnlock(cbuffer);
 		CloseClipboard();
-		if(glbuffer!=NULL){
-			return mystrdup(glbuffer);
-		}// else {
-		//	return mystrdup("");
-		//}
+		return glbuffer ? std::string(glbuffer) : "";
 	}
 #elif defined(LIN) && defined(SDL_VIDEO_DRIVER_X11)
-	char *text = NULL;
+	std::string text = "";
 	Window selectionOwner;
 	sdl_wminfo.info.x11.lock_func();
 	selectionOwner = XGetSelectionOwner(sdl_wminfo.info.x11.display, XA_CLIPBOARD);
@@ -166,17 +164,17 @@ char * ClipboardPull()
 			result = XGetWindowProperty(sdl_wminfo.info.x11.display, sdl_wminfo.info.x11.window, XA_CLIPBOARD, 0, bytesLeft, 0, AnyPropertyType, &type, &format, &len, &bytesLeft, &data);
 			if (result == Success)
 			{
-				text = strdup((const char*) data);
+				text = data ? (const char*)data : "";
 				XFree(data);
 			}
 			else
 			{
 				printf("Failed to pull from clipboard\n");
-				return mystrdup("?");
+				return "?";
 			}
 		}
 		else
-			return mystrdup("");
+			return "";
 		XDeleteProperty(sdl_wminfo.info.x11.display, sdl_wminfo.info.x11.window, XA_CLIPBOARD);
 	}
 	sdl_wminfo.info.x11.unlock_func();
@@ -184,9 +182,7 @@ char * ClipboardPull()
 #else
 	printf("Not implemented: get text from clipboard\n");
 #endif
-	if (clipboardText)
-		return mystrdup(clipboardText);
-	return mystrdup("");
+	return clipboardText;
 }
 
 #ifdef OGLI
@@ -299,7 +295,6 @@ void blit2(pixel * vid, int currentScale)
 
 int SDLOpen()
 {
-	SDL_Surface * surface;
 #if defined(WIN) && defined(WINCONSOLE)
 	FILE * console = fopen("CON", "w" );
 #endif
@@ -325,7 +320,7 @@ int SDLOpen()
 	SDL_SysWMinfo SysInfo;
 	SDL_VERSION(&SysInfo.version);
 	if(SDL_GetWMInfo(&SysInfo) <= 0) {
-	    printf("%s : %d\n", SDL_GetError(), SysInfo.window);
+	    printf("%s : %p\n", SDL_GetError(), SysInfo.window);
 	    exit(-1);
 	}
 	HWND WindowHandle = SysInfo.window;
@@ -337,8 +332,8 @@ int SDLOpen()
 	SendMessage(WindowHandle, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 	SendMessage(WindowHandle, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
 #elif defined(LIN)
-	SDL_Surface *icon = SDL_CreateRGBSurfaceFrom(app_icon, 16, 16, 32, 64, 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
-	SDL_WM_SetIcon(icon, NULL);
+	SDL_Surface *icon = SDL_CreateRGBSurfaceFrom((void*)app_icon, 48, 48, 24, 144, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
+	SDL_WM_SetIcon(icon, (Uint8*)app_icon_bitmap);
 #endif
 
 	SDL_WM_SetCaption("The Powder Toy", "Powder Toy");
@@ -425,6 +420,33 @@ std::map<std::string, std::string> readArguments(int argc, char * argv[])
 	return arguments;
 }
 
+SDLKey MapNumpad(SDLKey key)
+{
+	switch(key)
+	{
+	case KEY_NUM_UP:
+		return KEY_UP;
+	case KEY_NUM_DOWN:
+		return KEY_DOWN;
+	case KEY_NUM_RIGHT:
+		return KEY_RIGHT;
+	case KEY_NUM_LEFT:
+		return KEY_LEFT;
+	case KEY_NUM_HOME:
+		return KEY_HOME;
+	case KEY_NUM_END:
+		return KEY_END;
+	case KEY_NUM_PERIOD:
+		return KEY_DELETE;
+	case KEY_NUM_INS:
+	case KEY_NUM_PGUP:
+	case KEY_NUM_PGDOWN:
+		return KEY_UNKNOWN;
+	default:
+		return key;
+	}
+}
+
 int elapsedTime = 0, currentTime = 0, lastTime = 0, currentFrame = 0;
 unsigned int lastTick = 0;
 float fps = 0, delta = 1.0f, inputScale = 1.0f;
@@ -433,6 +455,21 @@ float currentWidth, currentHeight;
 
 void EventProcess(SDL_Event event)
 {
+	if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
+	{
+		if (event.key.keysym.unicode==0)
+		{
+			// If unicode is zero, this could be a numpad key with numlock off, or numlock on and shift on (unicode is set to 0 by SDL or the OS in these circumstances. If numlock is on, unicode is the relevant digit character).
+			// For some unknown reason, event.key.keysym.mod seems to be unreliable on some computers (keysum.mod&KEY_MOD_NUM is opposite to the actual value), so check keysym.unicode instead.
+			// Note: unicode is always zero for SDL_KEYUP events, so this translation won't always work properly for keyup events.
+			SDLKey newKey = MapNumpad(event.key.keysym.sym);
+			if (newKey != event.key.keysym.sym)
+			{
+				event.key.keysym.sym = newKey;
+				event.key.keysym.unicode = 0;
+			}
+		}
+	}
 	switch (event.type)
 	{
 	case SDL_QUIT:
@@ -449,7 +486,7 @@ void EventProcess(SDL_Event event)
 		engine->onMouseMove(event.motion.x*inputScale, event.motion.y*inputScale);
 		break;
 	case SDL_MOUSEBUTTONDOWN:
-		if(event.button.button == SDL_BUTTON_WHEELUP)
+		if (event.button.button == SDL_BUTTON_WHEELUP)
 		{
 			engine->onMouseWheel(event.motion.x*inputScale, event.motion.y*inputScale, 1);
 		}
@@ -463,7 +500,7 @@ void EventProcess(SDL_Event event)
 		}
 		break;
 	case SDL_MOUSEBUTTONUP:
-		if(event.button.button != SDL_BUTTON_WHEELUP && event.button.button != SDL_BUTTON_WHEELDOWN)
+		if (event.button.button != SDL_BUTTON_WHEELUP && event.button.button != SDL_BUTTON_WHEELDOWN)
 			engine->onMouseUnclick(event.motion.x*inputScale, event.motion.y*inputScale, event.button.button);
 		break;
 #ifdef OGLI
@@ -499,10 +536,7 @@ void EventProcess(SDL_Event event)
 		XEvent xe = event.syswm.msg->event.xevent;
 		if (xe.type==SelectionClear)
 		{
-			if (clipboardText != NULL) {
-				free(clipboardText);
-				clipboardText = NULL;
-			}
+			clipboardText = "";
 		}
 		else if (xe.type==SelectionRequest)
 		{
@@ -521,9 +555,9 @@ void EventProcess(SDL_Event event)
 				XChangeProperty(sdl_wminfo.info.x11.display, xe.xselectionrequest.requestor, xe.xselectionrequest.property, XA_ATOM, 32, PropModeReplace, (unsigned char*)targets, (int)(sizeof(targets)/sizeof(Atom)));
 			}
 			// TODO: Supporting more targets would be nice
-			else if ((xe.xselectionrequest.target==XA_STRING || xe.xselectionrequest.target==XA_UTF8_STRING) && clipboardText)
+			else if ((xe.xselectionrequest.target==XA_STRING || xe.xselectionrequest.target==XA_UTF8_STRING))
 			{
-				XChangeProperty(sdl_wminfo.info.x11.display, xe.xselectionrequest.requestor, xe.xselectionrequest.property, xe.xselectionrequest.target, 8, PropModeReplace, (unsigned char*)clipboardText, strlen(clipboardText)+1);
+				XChangeProperty(sdl_wminfo.info.x11.display, xe.xselectionrequest.requestor, xe.xselectionrequest.property, xe.xselectionrequest.target, 8, PropModeReplace, (unsigned char*)clipboardText.c_str(), clipboardText.size()+1);
 			}
 			else
 			{
@@ -539,12 +573,11 @@ void EventProcess(SDL_Event event)
 
 void EngineProcess()
 {
-	int frameStart = SDL_GetTicks();
-	float frameTime;
-	float frameTimeAvg = 0.0f, correctedFrameTimeAvg = 0.0f;
+	double frameTimeAvg = 0.0f, correctedFrameTimeAvg = 0.0f;
 	SDL_Event event;
 	while(engine->Running())
 	{
+		int frameStart = SDL_GetTicks();
 		if(engine->Broken()) { engine->UnBreak(); break; }
 		event.type = 0;
 		while (SDL_PollEvent(&event))
@@ -560,7 +593,7 @@ void EngineProcess()
 		if(scale != engine->Scale || fullscreen != engine->Fullscreen)
 		{
 			sdl_scrn = SDLSetScreen(engine->Scale, engine->Fullscreen);
-			inputScale = 1.0f/float(scale);
+			inputScale = 1.0f/(float)scale;
 		}
 
 #ifdef OGLI
@@ -572,23 +605,19 @@ void EngineProcess()
 			blit(engine->g->vid);
 #endif
 
-		frameTime = SDL_GetTicks() - frameStart;
-		frameTimeAvg = (frameTimeAvg*(1.0f-0.2f)) + (0.2f*frameTime);
-		if(ui::Engine::Ref().FpsLimit > 2.0f)
+		int frameTime = SDL_GetTicks() - frameStart;
+		frameTimeAvg = frameTimeAvg * 0.8 + frameTime * 0.2;
+		int fpsLimit = ui::Engine::Ref().FpsLimit;
+		if(fpsLimit > 2)
 		{
-			float targetFrameTime = 1000.0f/((float)ui::Engine::Ref().FpsLimit);
-			if(targetFrameTime - frameTimeAvg > 0)
-			{
-				SDL_Delay((targetFrameTime - frameTimeAvg) + 0.5f);
-				frameTime = SDL_GetTicks() - frameStart;//+= (int)(targetFrameTime - frameTimeAvg);
-			}
+			double offset = 1000.0 / fpsLimit - frameTimeAvg;
+			if(offset > 0)
+				SDL_Delay(offset + 0.5);
 		}
-		correctedFrameTimeAvg = (correctedFrameTimeAvg*(1.0f-0.05f)) + (0.05f*frameTime);
-		fps = 1000.0f/correctedFrameTimeAvg;
-		engine->SetFps(fps);
-		frameStart = SDL_GetTicks();
-
-		if(frameStart-lastTick>250)
+		int correctedFrameTime = SDL_GetTicks() - frameStart;
+		correctedFrameTimeAvg = correctedFrameTimeAvg * 0.95 + correctedFrameTime * 0.05;
+		engine->SetFps(1000.0 / correctedFrameTimeAvg);
+		if(frameStart - lastTick > 1000)
 		{
 			//Run client tick every second
 			lastTick = frameStart;
@@ -804,7 +833,7 @@ int main(int argc, char * argv[])
 	if(tempScale != 1 && tempScale != 2)
 		tempScale = 1;
 
-	int sdlStatus = SDLOpen();
+	SDLOpen();
 #ifdef WIN
 	LoadWindowPosition(tempScale);
 #endif
@@ -914,8 +943,8 @@ int main(int argc, char * argv[])
 			{
 				std::string saveIdPart = "";
 				int saveId;
-				int hashPos = ptsaveArg.find('#');
-				if(hashPos != std::string::npos)
+				size_t hashPos = ptsaveArg.find('#');
+				if (hashPos != std::string::npos)
 				{
 					saveIdPart = ptsaveArg.substr(7, hashPos-7);
 				}
@@ -923,7 +952,7 @@ int main(int argc, char * argv[])
 				{
 					saveIdPart = ptsaveArg.substr(7);
 				}
-				if(saveIdPart.length())
+				if (saveIdPart.length())
 				{
 #ifdef DEBUG
 					std::cout << "Got Ptsave: id: " <<  saveIdPart << std::endl;
@@ -933,10 +962,10 @@ int main(int argc, char * argv[])
 						throw std::runtime_error("Invalid Save ID");
 
 					SaveInfo * newSave = Client::Ref().GetSave(saveId, 0);
+					if (!newSave)
+						throw std::runtime_error("Could not load save");
 					GameSave * newGameSave = new GameSave(Client::Ref().GetSaveData(saveId, 0));
 					newSave->SetGameSave(newGameSave);
-					if(!newSave)
-						throw std::runtime_error("Could not load save");
 
 					gameController->LoadSave(newSave);
 					delete newSave;
@@ -953,11 +982,15 @@ int main(int argc, char * argv[])
 			}
 		}
 
+		//initial mouse coords
+		int sdl_x, sdl_y;
+		SDL_GetMouseState(&sdl_x, &sdl_y);
+		engine->onMouseMove(sdl_x*inputScale, sdl_y*inputScale);
 		EngineProcess();
 		
-	#ifdef WIN
+#ifdef WIN
 		SaveWindowPosition();
-	#endif
+#endif
 
 #if !defined(DEBUG) && !defined(_DEBUG)
 	}

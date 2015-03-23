@@ -5,6 +5,7 @@
 #include <pthread.h>
 #undef GetUserName //God dammit microsoft!
 #include "TaskListener.h"
+#include "Config.h"
 
 class TaskListener;
 class Task {
@@ -41,7 +42,7 @@ protected:
 	virtual void before();
 	virtual void after();
 	virtual bool doWork();
-	static void * doWork_helper(void * ref);
+	TH_ENTRY_POINT static void * doWork_helper(void * ref);
 
 	virtual void notifyProgress(int progress);
 	virtual void notifyError(std::string error);

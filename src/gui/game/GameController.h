@@ -29,9 +29,9 @@ class ConsoleController;
 class GameController: public ClientListener
 {
 private:
-	//Simulation * sim;
 	bool firstTick;
-	int screenshotIndex;
+	sign * foundSign;
+
 	PreviewController * activePreview;
 	GameView * gameView;
 	GameModel * gameModel;
@@ -44,6 +44,7 @@ private:
 	OptionsController * options;
 	CommandInterface * commandInterface;
 	vector<DebugInfo*> debugInfo;
+	unsigned int debugFlags;
 public:
 	bool HasDone;
 	class SearchCallback;
@@ -66,6 +67,7 @@ public:
 	bool MouseWheel(int x, int y, int d);
 	bool KeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt);
 	bool KeyRelease(int key, Uint16 character, bool shift, bool ctrl, bool alt);
+	bool MouseTick();
 	void Tick();
 	void Exit();
 
@@ -80,6 +82,7 @@ public:
 	void SetZoomEnabled(bool zoomEnable);
 	void SetZoomPosition(ui::Point position);
 	void AdjustBrushSize(int direction, bool logarithmic = false, bool xAxis = false, bool yAxis = false);
+	void SetBrushSize(ui::Point newSize);
 	void AdjustZoomSize(int direction, bool logarithmic = false);
 	void ToolClick(int toolSelection, ui::Point point);
 	void DrawPoints(int toolSelection, queue<ui::Point> & pointQueue);
@@ -99,6 +102,7 @@ public:
 	bool GetHudEnable();
 	void SetDebugHUD(bool hudState);
 	bool GetDebugHUD();
+	void SetDebugFlags(unsigned int flags) { debugFlags = flags; }
 	void SetActiveMenu(int menuID);
 	std::vector<Menu*> GetMenuList();
 	Tool * GetActiveTool(int selection);
@@ -129,6 +133,9 @@ public:
 	void PlaceSave(ui::Point position);
 	void ClearSim();
 	void ReloadSim();
+#ifdef PARTICLEDEBUG
+	void ParticleDebug(int mode, int x, int y);
+#endif
 	void Vote(int direction);
 	void ChangeBrush();
 	void ShowConsole();
@@ -136,6 +143,7 @@ public:
 	void FrameStep();
 	void TranslateSave(ui::Point point);
 	void TransformSave(matrix2d transform);
+	bool MouseInZoom(ui::Point position);
 	ui::Point PointTranslate(ui::Point point);
 	ui::Point NormaliseBlockCoord(ui::Point point);
 	std::string ElementResolve(int type, int ctype);
@@ -150,7 +158,7 @@ public:
 	void ToggleNewtonianGravity();
 
 	void LoadClipboard();
-	void LoadStamp();
+	void LoadStamp(GameSave *stamp);
 
 	void RemoveNotification(Notification * notification);
 

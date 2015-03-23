@@ -41,10 +41,10 @@ void ConsoleView::DoKeyPress(int key, Uint16 character, bool shift, bool ctrl, b
 		commandField->SetText("");
 		commandField->SetDisplayText("");
 		break;
-	case KEY_DOWN: case KEY_NUM_DOWN:
+	case KEY_DOWN:
 		c->NextCommand();
 		break;
-	case KEY_UP: case KEY_NUM_UP:
+	case KEY_UP:
 		c->PreviousCommand();
 		break;
 	default:
@@ -55,7 +55,7 @@ void ConsoleView::DoKeyPress(int key, Uint16 character, bool shift, bool ctrl, b
 
 void ConsoleView::NotifyPreviousCommandsChanged(ConsoleModel * sender)
 {
-	for(int i = 0; i < commandList.size(); i++)
+	for (size_t i = 0; i < commandList.size(); i++)
 	{
 		RemoveComponent(commandList[i]);
 		delete commandList[i];

@@ -78,10 +78,10 @@ public:
 
 RenderView::RenderView():
 	ui::Window(ui::Point(0, 0), ui::Point(XRES, WINDOWH)),
+	ren(NULL),
 	toolTip(""),
 	toolTipPresence(0),
-	isToolTipFadingIn(false),
-	ren(NULL)
+	isToolTipFadingIn(false)
 {
 	ui::Button * presetButton;
 	int presetButtonOffset = 375;
@@ -186,6 +186,14 @@ RenderView::RenderView():
 	tCheckbox->SetActionCallback(new RenderModeAction(this, RENDER_BASC));
 	AddComponent(tCheckbox);
 
+	checkboxOffset += cSpace;
+
+	tCheckbox = new ui::Checkbox(ui::Point(checkboxOffset, YRES+4), ui::Point(30, 16), "Spark", "Glow effect on sparks");
+	renderModes.push_back(tCheckbox);
+	tCheckbox->SetIcon(IconEffect);
+	tCheckbox->SetActionCallback(new RenderModeAction(this, RENDER_SPRK));
+	AddComponent(tCheckbox);
+
 	checkboxOffset += sSpace;
 	line1 = checkboxOffset-5;
 
@@ -231,9 +239,9 @@ RenderView::RenderView():
 	AddComponent(tCheckbox);
 
 #ifdef OGLR
-	tCheckbox = new ui::Checkbox(ui::Point(checkboxOffset, YRES+4), ui::Point(30, 16), "Effect", "I don't know what this does..."); //I would remove the whole checkbox, but then there's a large empty space
+	tCheckbox = new ui::Checkbox(ui::Point(checkboxOffset, YRES+4), ui::Point(30, 16), "Effect", "Some type of OpenGL effect ... maybe"); //I would remove the whole checkbox, but then there's a large empty space
 #else
-	tCheckbox = new ui::Checkbox(ui::Point(checkboxOffset, YRES+4), ui::Point(30, 16), "Effect", "Does nothing");
+	tCheckbox = new ui::Checkbox(ui::Point(checkboxOffset, YRES+4), ui::Point(30, 16), "Effect", "Enables moving solids, stickmen guns, and premium(tm) graphics");
 #endif
 	displayModes.push_back(tCheckbox);
 	tCheckbox->SetIcon(IconEffect);
@@ -294,13 +302,13 @@ void RenderView::NotifyRendererChanged(RenderModel * sender)
 
 void RenderView::NotifyRenderChanged(RenderModel * sender)
 {
-	for(int i = 0; i < renderModes.size(); i++)
+	for (size_t i = 0; i < renderModes.size(); i++)
 	{
-		if(renderModes[i]->GetActionCallback())
+		if (renderModes[i]->GetActionCallback())
 		{
 			//Compares bitmasks at the moment, this means that "Point" is always on when other options that depend on it are, this might confuse some users, TODO: get the full list and compare that?
 			RenderModeAction * action = (RenderModeAction *)(renderModes[i]->GetActionCallback());
-			if(action->renderMode  == (sender->GetRenderMode() & action->renderMode))
+			if (action->renderMode  == (sender->GetRenderMode() & action->renderMode))
 			{
 				renderModes[i]->SetChecked(true);
 			}
@@ -314,12 +322,12 @@ void RenderView::NotifyRenderChanged(RenderModel * sender)
 
 void RenderView::NotifyDisplayChanged(RenderModel * sender)
 {
-	for(int i = 0; i < displayModes.size(); i++)
+	for (size_t i = 0; i < displayModes.size(); i++)
 	{
-		if(displayModes[i]->GetActionCallback())
+		if( displayModes[i]->GetActionCallback())
 		{
 			DisplayModeAction * action = (DisplayModeAction *)(displayModes[i]->GetActionCallback());
-			if(action->displayMode  == (sender->GetDisplayMode() & action->displayMode))
+			if (action->displayMode  == (sender->GetDisplayMode() & action->displayMode))
 			{
 				displayModes[i]->SetChecked(true);
 			}
@@ -333,12 +341,12 @@ void RenderView::NotifyDisplayChanged(RenderModel * sender)
 
 void RenderView::NotifyColourChanged(RenderModel * sender)
 {
-	for(int i = 0; i < colourModes.size(); i++)
+	for (size_t i = 0; i < colourModes.size(); i++)
 	{
-		if(colourModes[i]->GetActionCallback())
+		if (colourModes[i]->GetActionCallback())
 		{
 			ColourModeAction * action = (ColourModeAction *)(colourModes[i]->GetActionCallback());
-			if(action->colourMode == sender->GetColourMode())
+			if (action->colourMode == sender->GetColourMode())
 			{
 				colourModes[i]->SetChecked(true);
 			}
@@ -379,9 +387,9 @@ void RenderView::OnTick(float dt)
 		isToolTipFadingIn = false;
 		if(toolTipPresence < 120)
 		{
-			toolTipPresence += int(dt*2)>0?int(dt*2):1;
+			toolTipPresence += int(dt*2)>1?int(dt*2):2;
 			if(toolTipPresence > 120)
-				toolTipPresence = 0;
+				toolTipPresence = 120;
 		}
 	}
 	if(toolTipPresence>0)

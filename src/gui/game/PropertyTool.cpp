@@ -76,7 +76,7 @@ sim(sim_)
 	property = new ui::DropDown(ui::Point(8, 25), ui::Point(Size.X-16, 17));
 	property->SetActionCallback(new PropertyChanged(this));
 	AddComponent(property);
-	for(int i = 0; i < properties.size(); i++)
+	for (size_t i = 0; i < properties.size(); i++)
 	{
 		property->AddOption(std::pair<std::string, int>(properties[i].Name, i));
 	}
@@ -229,9 +229,9 @@ void PropertyWindow::OnDraw()
 
 void PropertyWindow::OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt)
 {
-	if (key == KEY_UP || key == KEY_NUM_UP)
+	if (key == KEY_UP)
 		property->SetOption(property->GetOption().second-1);
-	else if (key == KEY_DOWN || key == KEY_NUM_DOWN)
+	else if (key == KEY_DOWN)
 		property->SetOption(property->GetOption().second+1);
 }
 

@@ -21,11 +21,11 @@ extern int tptElements; //Table for TPT element names
 extern int tptParts, tptPartsMeta, tptElementTransitions, tptPartsCData, tptPartMeta, tptPart, cIndex;
 
 void luacon_hook(lua_State *L, lua_Debug *ar);
-int luacon_step(int mx, int my, std::string , std::string selectr, std::string selectedalt, int bsx, int bsy);
+int luacon_step(int mx, int my);
 int luacon_mouseevent(int mx, int my, int mb, int event, int mouse_wheel);
 int luacon_keyevent(int key, int modifier, int event);
 int luacon_eval(const char *command);
-char *luacon_geterror();
+const char *luacon_geterror();
 void luacon_close();
 int luacon_partsread(lua_State* l);
 int luacon_partswrite(lua_State* l);
@@ -35,9 +35,8 @@ int luacon_elementread(lua_State* l);
 int luacon_elementwrite(lua_State* l);
 int luacon_transitionread(lua_State* l);
 int luacon_transitionwrite(lua_State* l);
-int luacon_particle_getproperty(char * key, int * format);
-int luacon_transition_getproperty(char * key, int * format);
-int luacon_element_getproperty(char * key, int * format, unsigned int * modified_stuff);
+int luacon_transition_getproperty(const char * key, int * format);
+int luacon_element_getproperty(const char * key, int * format, unsigned int * modified_stuff);
 //int process_command_lua(pixel *vid_buf, char *console, char *console_error);
 
 //Interface

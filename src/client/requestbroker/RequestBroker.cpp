@@ -14,6 +14,8 @@
 
 //Asynchronous Thumbnail render & request processing
 
+unsigned int RequestListener::nextListenerID = 0;
+
 RequestBroker::RequestBroker()
 {
 	thumbnailQueueRunning = false;
@@ -141,7 +143,7 @@ void RequestBroker::RetrieveImage(std::string imageUrl, int width, int height, R
 	assureRunning();
 }
 
-void * RequestBroker::thumbnailQueueProcessHelper(void * ref)
+TH_ENTRY_POINT void * RequestBroker::thumbnailQueueProcessHelper(void * ref)
 {
 	((RequestBroker*)ref)->thumbnailQueueProcessTH();
 	return NULL;
@@ -265,7 +267,7 @@ bool RequestBroker::CheckRequestListener(ListenerHandle handle)
 
 ListenerHandle RequestBroker::AttachRequestListener(RequestListener * tListener)
 {
-	ListenerHandle handle = ListenerHandle(tListener->ListenerRand, tListener);
+	ListenerHandle handle = ListenerHandle(tListener->ListenerID, tListener);
 	pthread_mutex_lock(&listenersMutex);
 	validListeners.push_back(handle);
 	pthread_mutex_unlock(&listenersMutex);
@@ -282,7 +284,7 @@ void RequestBroker::DetachRequestListener(RequestListener * tListener)
 	std::vector<ListenerHandle>::iterator iter = validListeners.begin();
 	while (iter != validListeners.end())
 	{
-		if(*iter == ListenerHandle(tListener->ListenerRand, tListener))
+		if(*iter == ListenerHandle(tListener->ListenerID, tListener))
 			iter = validListeners.erase(iter);
 		else
 			++iter;
@@ -306,7 +308,7 @@ RequestBroker::Request::~Request()
 		delete (*iter);
 		iter++;
 	}
-	Children.empty();
+	Children.clear();
 }
 void RequestBroker::Request::Cleanup()
 {
