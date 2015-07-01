@@ -106,31 +106,33 @@ if not tool and compilePlatform == "Linux" and compilePlatform != platform:
 	if platform == "Darwin":
 		crossList = ["i686-apple-darwin9", "i686-apple-darwin10"]
 	elif not GetOption('64bit'):
-		crossList = ["mingw32", "i386-mingw32msvc", "i486-mingw32msvc", "i586-mingw32msvc", "i686-mingw32msvc"]
+		crossList = ["mingw32", "i686-w64-mingw32", "i386-mingw32msvc", "i486-mingw32msvc", "i586-mingw32msvc", "i686-mingw32msvc"]
 	else:
-		crossList = ["x86_64-w64-mingw32", "i686-w64-mingw32", "amd64-mingw32msvc"]
+		crossList = ["x86_64-w64-mingw32", "amd64-mingw32msvc"]
 	for i in crossList:
+		#found a cross compiler, set tool here, which will update everything in env later
 		if WhereIs("{0}-g++".format(i)):
-			env['ENV']['PATH'] = "/usr/{0}/bin:{1}".format(i, os.environ['PATH'])
 			tool = i+"-"
 			break
 	if not tool:
 		print("Could not automatically find cross compiler, use --tool to specify manually")
 
 #set tool prefix
-#more things may to be set (http://clam-project.org/clam/trunk/CLAM/scons/sconstools/crossmingw.py), but this works for us
+#more things may need to be set (http://clam-project.org/clam/trunk/CLAM/scons/sconstools/crossmingw.py), but this works for us
 if tool:
 	env['CC'] = tool+env['CC']
 	env['CXX'] = tool+env['CXX']
 	if platform == "Windows":
 		env['RC'] = tool+env['RC']
 	env['STRIP'] = tool+'strip'
+	if os.path.isdir("/usr/{0}/bin".format(tool[:-1])):
+		env['ENV']['PATH'] = "/usr/{0}/bin:{1}".format(tool[:-1], os.environ['PATH'])
 
 #copy environment variables because scons doesn't do this by default
 for var in ["CC","CXX","LD","LIBPATH"]:
 	if var in os.environ:
 		env[var] = os.environ[var]
-		print "copying enviroment variable {0}={1!r}".format(var,os.environ[var])
+		print "copying environment variable {0}={1!r}".format(var,os.environ[var])
 # variables containing several space separated things
 for var in ["CFLAGS","CCFLAGS","CXXFLAGS","LINKFLAGS","CPPDEFINES","CPPPATH"]:
 	if var in os.environ:
@@ -138,7 +140,7 @@ for var in ["CFLAGS","CCFLAGS","CXXFLAGS","LINKFLAGS","CPPDEFINES","CPPPATH"]:
 			env[var] += SCons.Util.CLVar(os.environ[var])
 		else:
 			env[var] = SCons.Util.CLVar(os.environ[var])
-		print "copying enviroment variable {0}={1!r}".format(var,os.environ[var])
+		print "copying environment variable {0}={1!r}".format(var,os.environ[var])
 
 #Used for intro text / executable name, actual bit flags are only set if the --64bit/--32bit command line args are given
 def add32bitflags(env):
@@ -260,7 +262,7 @@ def findLibs(env, conf):
 			env.Append(CPPDEFINES=["LUAJIT"])
 			luaver = "luajit"
 		elif GetOption('lua52'):
-			if not conf.CheckLib(['lua5.2', 'lua-5.2', 'lua52']):
+			if not conf.CheckLib(['lua5.2', 'lua-5.2', 'lua52', 'lua']):
 				FatalError("lua5.2 development library not found or not installed")
 			env.Append(CPPDEFINES=["LUA_COMPAT_ALL"])
 			luaver = "lua5.2"
@@ -291,6 +293,10 @@ def findLibs(env, conf):
 					env.Append(CPPDEFINES=["LUA_R_INCL"])
 				else:
 					FatalError("lua.h not found")
+
+		#needed for static lua compiles (in some cases)
+		if platform == "Linux":
+			conf.CheckLib('dl')
 
 	#Look for fftw
 	if not GetOption('nofft') and not conf.CheckLib(['fftw3f', 'fftw3f-3', 'libfftw3f-3', 'libfftw3f']):
@@ -449,8 +455,8 @@ elif GetOption('release'):
 
 if GetOption('static'):
 	if not msvc:
-		env.Append(CCFLAGS=['-static-libgcc'])
-		env.Append(LINKFLAGS=['-static-libgcc'])
+		env.Append(CCFLAGS=['-static-libgcc', '-static-libstdc++'])
+		env.Append(LINKFLAGS=['-static-libgcc', '-static-libstdc++'])
 	if platform == "Windows":
 		env.Append(CPPDEFINES=['PTW32_STATIC_LIB'])
 		if not msvc:

@@ -1027,6 +1027,14 @@ void GameSave::readOPS(char * data, int dataLength)
 							particles[newIndex].tmp = 1;
 						}
 						break;
+					case PT_DLAY:
+						// correct DLAY temperature in older saves
+						// due to either the +.5f now done in DLAY (higher temps), or rounding errors in the old DLAY code (room temperature temps),
+						// the delay in all DLAY from older versions will always be one greater than it should
+						if (savedVersion < 91)
+						{
+							particles[newIndex].temp = particles[newIndex].temp - 1.0f;
+						}
 					}
 					//note: PSv was used in version 77.0 and every version before, add something in PSv too if the element is that old
 					newIndex++;
@@ -1075,17 +1083,13 @@ void GameSave::readOPS(char * data, int dataLength)
 fail:
 	//Clean up everything
 	bson_destroy(&b);
-	if(freeIndices)
-		free(freeIndices);
-	if(partsSimIndex)
-		free(partsSimIndex);
+	free(freeIndices);
+	free(partsSimIndex);
 	throw ParseException(ParseException::Corrupt, "Save data corrupt");
 fin:
 	bson_destroy(&b);
-	if(freeIndices)
-		free(freeIndices);
-	if(partsSimIndex)
-		free(partsSimIndex);
+	free(freeIndices);
+	free(partsSimIndex);
 }
 
 void GameSave::readPSv(char * data, int dataLength)
@@ -1914,13 +1918,13 @@ char * GameSave::serialiseOPS(unsigned int & dataLength)
 				//Store temperature as an offset of 21C(294.15K) or go into a 16byte int and store the whole thing
 				if(fabs(particles[i].temp-294.15f)<127)
 				{
-					tempTemp = (particles[i].temp-294.15f);
+					tempTemp = floor(particles[i].temp-294.15f+0.5f);
 					partsData[partsDataLen++] = tempTemp;
 				}
 				else
 				{
 					fieldDesc |= 1;
-					tempTemp = particles[i].temp;
+					tempTemp = (int)(particles[i].temp+0.5f);
 					partsData[partsDataLen++] = tempTemp;
 					partsData[partsDataLen++] = tempTemp >> 8;
 				}
@@ -2191,28 +2195,17 @@ char * GameSave::serialiseOPS(unsigned int & dataLength)
 
 fin:
 	bson_destroy(&b);
-	if(partsData)
-		free(partsData);
-	if(wallData)
-		free(wallData);
-	if(fanData)
-		free(fanData);
-	if (elementCount)
-		delete[] elementCount;
-	if (partsSaveIndex)
-		free(partsSaveIndex);
-	if (soapLinkData)
-		free(soapLinkData);
-	if (partsPosData)
-		free(partsPosData);
-	if (partsPosFirstMap)
-		free(partsPosFirstMap);
-	if (partsPosLastMap)
-		free(partsPosLastMap);
-	if (partsPosCount)
-		free(partsPosCount);
-	if (partsPosLink)
-		free(partsPosLink);
+	free(partsData);
+	free(wallData);
+	free(fanData);
+	delete[] elementCount;
+	free(partsSaveIndex);
+	free(soapLinkData);
+	free(partsPosData);
+	free(partsPosFirstMap);
+	free(partsPosLastMap);
+	free(partsPosCount);
+	free(partsPosLink);
 
 	return (char*)outputData;
 }

@@ -72,8 +72,6 @@ void *file_load(char *fn, int *size);
 
 extern char *clipboard_text;
 
-int register_extension();
-
 int cpu_check(void);
 
 void HSV_to_RGB(int h,int s,int v,int *r,int *g,int *b);
@@ -83,8 +81,6 @@ void RGB_to_HSV(int r,int g,int b,int *h,int *s,int *v);
 void OpenURI(std::string uri);
 
 void membwand(void * dest, void * src, size_t destsize, size_t srcsize);
-
-int splitsign(const char* str, char * type = NULL);
 
 void millisleep(long int t);
 

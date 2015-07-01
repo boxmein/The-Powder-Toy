@@ -17,7 +17,7 @@ Element_FIRE::Element_FIRE()
 	Gravity = -0.1f;
 	Diffusion = 0.00f;
 	HotAir = 0.001f  * CFDS;
-	Falldown = 1;
+	Falldown = 0;
 	
 	Flammable = 0;
 	Explosive = 0;
@@ -91,8 +91,6 @@ int Element_FIRE::update(UPDATE_FUNC_ARGS)
 			{
 				r = pmap[y+ry][x+rx];
 				if (!r)
-					continue;
-				if (sim->bmap[(y+ry)/CELL][(x+rx)/CELL] && sim->bmap[(y+ry)/CELL][(x+rx)/CELL]!=WL_STREAM)
 					continue;
 				rt = r&0xFF;
 				

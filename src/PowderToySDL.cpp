@@ -334,6 +334,7 @@ int SDLOpen()
 #elif defined(LIN)
 	SDL_Surface *icon = SDL_CreateRGBSurfaceFrom((void*)app_icon, 48, 48, 24, 144, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
 	SDL_WM_SetIcon(icon, (Uint8*)app_icon_bitmap);
+	SDL_FreeSurface(icon);
 #endif
 
 	SDL_WM_SetCaption("The Powder Toy", "Powder Toy");
@@ -721,7 +722,7 @@ void BlueScreen(const char * detailMessage){
 
 	std::string errorTitle = "ERROR";
 	std::string errorDetails = "Details: " + std::string(detailMessage);
-	std::string errorHelp = "An unrecoverable fault has occured, please report the error by visiting the website below\n"
+	std::string errorHelp = "An unrecoverable fault has occurred, please report the error by visiting the website below\n"
 		"http://" SERVER;
 	int currentY = 0, width, height;
 	int errorWidth = 0;
@@ -834,6 +835,11 @@ int main(int argc, char * argv[])
 		tempScale = 1;
 
 	SDLOpen();
+	if (Client::Ref().IsFirstRun() && desktopWidth > WINDOWW*2 && desktopHeight > WINDOWH*2)
+	{
+		tempScale = 2;
+		Client::Ref().SetPref("Scale", 2);
+	}
 #ifdef WIN
 	LoadWindowPosition(tempScale);
 #endif
