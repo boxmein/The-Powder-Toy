@@ -32,6 +32,65 @@ std::string sign::getText(Simulation *sim)
 			else
 				sprintf(buff, "Temp: 0.00");  //...temperature
 		}
+		else if (!strcmp(signText,"{life}")) {
+			// life
+			if (x>=0 && x<XRES && y>=0 && y<YRES && sim->pmap[y][x])
+				sprintf(buff, "Life: %d", sim->parts[sim->pmap[y][x]>>8].life);
+			else
+				sprintf(buff, "Life: -");
+		}
+		else if (!strcmp(signText,"{tmp}")) {
+			// TMP
+			if (x>=0 && x<XRES && y>=0 && y<YRES && sim->pmap[y][x])
+				sprintf(buff, "Tmp: %d", sim->parts[sim->pmap[y][x]>>8].tmp);
+			else
+				sprintf(buff, "Tmp: -");
+		}
+		else if (!strcmp(signText,"{tmp2}")) {
+			// TMP2
+			if (x>=0 && x<XRES && y>=0 && y<YRES && sim->pmap[y][x])
+				sprintf(buff, "Tmp2: %d", sim->parts[sim->pmap[y][x]>>8].tmp2);
+			else
+				sprintf(buff, "Tmp2: -");
+		}
+		else if (!strcmp(signText,"{vx}")) {
+			// X velocity
+			if (x>=0 && x<XRES && y>=0 && y<YRES && sim->pmap[y][x])
+				sprintf(buff, "Vx: %d", sim->parts[sim->pmap[y][x]>>8].vx);
+			else
+				sprintf(buff, "Vx: -");
+		}
+		else if (!strcmp(signText,"{vy}")) {
+			// Y velocity
+			if (x>=0 && x<XRES && y>=0 && y<YRES && sim->pmap[y][x])
+				sprintf(buff, "Vy: %d", sim->parts[sim->pmap[y][x]>>8].vy);
+			else
+				sprintf(buff, "Vy: -");
+		}
+		else if (!strcmp(signText,"{edgeMode}")) {
+			sprintf(buff, "Edge Mode: %d", sim->edgeMode);
+		}
+		else if (!strcmp(signText,"{gravityMode}")) {
+			sprintf(buff, "Gravity Mode: %d", sim->gravityMode);
+		}
+		else if (!strcmp(signText,"{legacyMode}")) {
+			sprintf(buff, "Legacy Mode: %d", sim->legacy_enable);
+		}
+		else if (!strcmp(signText,"{ambientHeat}")) {
+			sprintf(buff, "Ambient Heat: %d", sim->aheat_enable);
+		}
+		else if (!strcmp(signText,"{waterEqual}")) {
+			sprintf(buff, "Water Equalisation: %d", sim->water_equal_test);
+		}
+		else if (!strcmp(signText,"{paused}")) {
+			sprintf(buff, "Paused: %d", sim->sys_pause);
+		}
+		else if (!strcmp(signText,"{prettyPowder}")) {
+			sprintf(buff, "Pretty powders: %d", sim->pretty_powder);
+		}
+		else if (!strcmp(signText,"{fighters}")) {
+			sprintf(buff, "Fighters: %d", sim->fighcount);
+		}
 		else
 		{
 			int pos = splitsign(signText);
