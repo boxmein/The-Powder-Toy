@@ -1256,16 +1256,36 @@ int Simulation::CreateParts(int positionX, int positionY, int c, Brush * cBrush,
 {
 	if (flags == -1)
 		flags = replaceModeFlags;
-	if(cBrush)
+	if (cBrush)
 	{
 		int radiusX = cBrush->GetRadius().X, radiusY = cBrush->GetRadius().Y, sizeX = cBrush->GetSize().X, sizeY = cBrush->GetSize().Y;
 		unsigned char *bitmap = cBrush->GetBitmap();
-		
-		for(int y = sizeY-1; y >=0; y--)
+
+		// special case for LIGH
+		if (c == PT_LIGH)
 		{
-			for(int x = 0; x < sizeX; x++)
+			if (currentTick < lightningRecreate)
+				return 1;
+			int newlife = radiusX + radiusY;
+			if (newlife > 55)
+				newlife = 55;
+			c = c|newlife<<8;
+			lightningRecreate = currentTick+newlife/4;
+			return CreatePartFlags(positionX, positionY, c, flags);
+		}
+		else if (c == PT_TESC)
+		{
+			int newtmp = (radiusX*4+radiusY*4+7);
+			if (newtmp > 300)
+				newtmp = 300;
+			c = c|newtmp<<8;
+		}
+		
+		for (int y = sizeY-1; y >=0; y--)
+		{
+			for (int x = 0; x < sizeX; x++)
 			{
-				if(bitmap[(y*sizeX)+x] && (positionX+(x-radiusX) >= 0 && positionY+(y-radiusY) >= 0 && positionX+(x-radiusX) < XRES && positionY+(y-radiusY) < YRES))
+				if (bitmap[(y*sizeX)+x] && (positionX+(x-radiusX) >= 0 && positionY+(y-radiusY) >= 0 && positionX+(x-radiusX) < XRES && positionY+(y-radiusY) < YRES))
 				{
 					CreatePartFlags(positionX+(x-radiusX), positionY+(y-radiusY), c, flags);
 				}
@@ -1277,16 +1297,36 @@ int Simulation::CreateParts(int positionX, int positionY, int c, Brush * cBrush,
 
 int Simulation::CreateParts(int x, int y, int rx, int ry, int c, int flags)
 {
-	int i, j, f = 0;
+	bool created = false;
 
 	if (flags == -1)
 		flags = replaceModeFlags;
 
-	for (j=-ry; j<=ry; j++)
-		for (i=-rx; i<=rx; i++)
+	// special case for LIGH
+	if (c == PT_LIGH)
+	{
+		if (currentTick < lightningRecreate)
+			return 1;
+		int newlife = rx + ry;
+		if (newlife > 55)
+			newlife = 55;
+		c = c|newlife<<8;
+		lightningRecreate = currentTick+newlife/4;
+		rx = ry = 0;
+	}
+	else if (c == PT_TESC)
+	{
+		int newtmp = (rx*4+ry*4+7);
+		if (newtmp > 300)
+			newtmp = 300;
+		c = c|newtmp<<8;
+	}
+
+	for (int j = -ry; j <= ry; j++)
+		for (int i = -rx; i <= rx; i++)
 			if (CreatePartFlags(x+i, y+j, c, flags))
-				f = 1;
-	return !f;
+				created = true;
+	return !created;
 }
 
 int Simulation::CreatePartFlags(int x, int y, int c, int flags)
@@ -3041,11 +3081,16 @@ int Simulation::create_part(int p, int x, int y, int tv)
 			case PT_LIGH:
 			{
 				float gx, gy, gsize;
-				if (p!=-2)
+
+				if (v >= 0)
 				{
-					parts[i].life=30;
-					parts[i].temp=parts[i].life*150.0f; // temperature of the lighting shows the power of the lighting
+					if (v > 55)
+						v = 55;
+					parts[i].life = v;
 				}
+				else
+					parts[i].life = 30;
+				parts[i].temp = parts[i].life*150.0f; // temperature of the lightning shows the power of the lightning
 				GetGravityField(x, y, 1.0f, 1.0f, gx, gy);
 				gsize = gx*gx+gy*gy;
 				if (gsize<0.0016f)
@@ -3220,7 +3265,7 @@ void Simulation::delete_part(int x, int y)//calls kill_part with the particle lo
 
 void Simulation::UpdateParticles(int start, int end)
 {
-	int i, j, x, y, t, nx, ny, r, surround_space, s, lt, rt, nt;
+	int i, j, x, y, t, nx, ny, r, surround_space, s, rt, nt;
 	float mv, dx, dy, nrx, nry, dp, ctemph, ctempl, gravtot;
 	int fin_x, fin_y, clear_x, clear_y, stagnant;
 	float fin_xf, fin_yf, clear_xf, clear_yf;
@@ -3669,10 +3714,23 @@ void Simulation::UpdateParticles(int start, int end)
 							parts[i].ctype = parts[i].type;
 						if (!(t==PT_ICEI && parts[i].ctype==PT_FRZW))
 							parts[i].life = 0;
+						if (t == PT_FIRE)
+						{
+							//hackish, if tmp isn't 0 the FIRE might turn into DSTW later
+							//idealy transitions should use create_part(i) but some elements rely on properties staying constant
+							//and I don't feel like checking each one right now
+							parts[i].tmp = 0;
+						}
 						if (elements[t].State==ST_GAS && elements[parts[i].type].State!=ST_GAS)
 							pv[y/CELL][x/CELL] += 0.50f;
 
-						part_change_type(i,x,y,t);
+						if (t == PT_NONE)
+						{
+							kill_part(i);
+							goto killed;
+						}
+						else
+							part_change_type(i,x,y,t);
 
 						if (t==PT_FIRE || t==PT_PLSM || t==PT_CFLM)
 							parts[i].life = rand()%50+120;
@@ -3683,11 +3741,6 @@ void Simulation::UpdateParticles(int start, int end)
 							else if (parts[i].ctype == PT_BGLA) parts[i].ctype = PT_GLAS;
 							else if (parts[i].ctype == PT_PQRT) parts[i].ctype = PT_QRTZ;
 							parts[i].life = rand()%120+240;
-						}
-						if (t == PT_NONE)
-						{
-							kill_part(i);
-							goto killed;
 						}
 						transitionOccurred = true;
 					}
@@ -4004,51 +4057,54 @@ killed:
 			}
 			else if (elements[t].Properties & TYPE_ENERGY)
 			{
-				if (t == PT_PHOT) {
+				if (t == PT_PHOT)
+				{
 					if (parts[i].flags&FLAG_SKIPMOVE)
 					{
 						parts[i].flags &= ~FLAG_SKIPMOVE;
 						continue;
 					}
 
-					rt = pmap[fin_y][fin_x] & 0xFF;
-					lt = pmap[y][x] & 0xFF;
-
-					r = eval_move(PT_PHOT, fin_x, fin_y, NULL);
-					if (((rt==PT_GLAS && lt!=PT_GLAS) || (rt!=PT_GLAS && lt==PT_GLAS)) && r) {
-						if (!get_normal_interp(REFRACT|t, parts[i].x, parts[i].y, parts[i].vx, parts[i].vy, &nrx, &nry)) {
-							kill_part(i);
-							continue;
-						}
-
-						r = get_wavelength_bin(&parts[i].ctype);
-						if (r == -1 || !(parts[i].ctype&0x3FFFFFFF))
+					if (eval_move(PT_PHOT, fin_x, fin_y, NULL))
+					{
+						int rt = pmap[fin_y][fin_x] & 0xFF;
+						int lt = pmap[y][x] & 0xFF;
+						if ((rt==PT_GLAS && lt!=PT_GLAS) || (rt!=PT_GLAS && lt==PT_GLAS))
 						{
-							kill_part(i);
-							continue;
-						}
-						nn = GLASS_IOR - GLASS_DISP*(r-15)/15.0f;
-						nn *= nn;
-						nrx = -nrx;
-						nry = -nry;
-						if (rt==PT_GLAS && lt!=PT_GLAS)
-							nn = 1.0f/nn;
-						ct1 = parts[i].vx*nrx + parts[i].vy*nry;
-						ct2 = 1.0f - (nn*nn)*(1.0f-(ct1*ct1));
-						if (ct2 < 0.0f) {
-							// total internal reflection
-							parts[i].vx -= 2.0f*ct1*nrx;
-							parts[i].vy -= 2.0f*ct1*nry;
-							fin_xf = parts[i].x;
-							fin_yf = parts[i].y;
-							fin_x = x;
-							fin_y = y;
-						} else {
-							// refraction
-							ct2 = sqrtf(ct2);
-							ct2 = ct2 - nn*ct1;
-							parts[i].vx = nn*parts[i].vx + ct2*nrx;
-							parts[i].vy = nn*parts[i].vy + ct2*nry;
+							if (!get_normal_interp(REFRACT|t, parts[i].x, parts[i].y, parts[i].vx, parts[i].vy, &nrx, &nry)) {
+								kill_part(i);
+								continue;
+							}
+
+							r = get_wavelength_bin(&parts[i].ctype);
+							if (r == -1 || !(parts[i].ctype&0x3FFFFFFF))
+							{
+								kill_part(i);
+								continue;
+							}
+							nn = GLASS_IOR - GLASS_DISP*(r-15)/15.0f;
+							nn *= nn;
+							nrx = -nrx;
+							nry = -nry;
+							if (rt==PT_GLAS && lt!=PT_GLAS)
+								nn = 1.0f/nn;
+							ct1 = parts[i].vx*nrx + parts[i].vy*nry;
+							ct2 = 1.0f - (nn*nn)*(1.0f-(ct1*ct1));
+							if (ct2 < 0.0f) {
+								// total internal reflection
+								parts[i].vx -= 2.0f*ct1*nrx;
+								parts[i].vy -= 2.0f*ct1*nry;
+								fin_xf = parts[i].x;
+								fin_yf = parts[i].y;
+								fin_x = x;
+								fin_y = y;
+							} else {
+								// refraction
+								ct2 = sqrtf(ct2);
+								ct2 = ct2 - nn*ct1;
+								parts[i].vx = nn*parts[i].vx + ct2*nrx;
+								parts[i].vy = nn*parts[i].vy + ct2*nry;
+							}
 						}
 					}
 				}
@@ -4885,6 +4941,7 @@ Simulation::Simulation():
 	ISWIRE(0),
 	force_stacking_check(0),
 	emp_decor(0),
+	lightningRecreate(0),
 	gravWallChanged(false),
 	edgeMode(0),
 	gravityMode(0),

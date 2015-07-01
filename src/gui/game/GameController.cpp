@@ -195,6 +195,10 @@ GameController::~GameController()
 	{
 		delete options;
 	}
+	for(std::vector<DebugInfo*>::iterator iter = debugInfo.begin(), end = debugInfo.end(); iter != end; iter++)
+	{
+		delete *iter;
+	}
 	//deleted here because it refuses to be deleted when deleted from gameModel even with the same code
 	std::deque<Snapshot*> history = gameModel->GetHistory();
 	for(std::deque<Snapshot*>::iterator iter = history.begin(), end = history.end(); iter != end; ++iter)
@@ -258,7 +262,8 @@ GameView * GameController::GetView()
 	return gameView;
 }
 
-sign * GameController::GetSignAt(int x, int y){
+sign * GameController::GetSignAt(int x, int y)
+{
 	Simulation * sim = gameModel->GetSimulation();
 	for (std::vector<sign>::reverse_iterator iter = sim->signs.rbegin(), end = sim->signs.rend(); iter != end; ++iter)
 	{
@@ -586,7 +591,7 @@ bool GameController::MouseDown(int x, int y, unsigned button)
 		if (!gameModel->GetActiveTool(0) || gameModel->GetActiveTool(0)->GetIdentifier() != "DEFAULT_UI_SIGN" || button != BUTTON_LEFT) //If it's not a sign tool or you are right/middle clicking
 		{
 			foundSign = GetSignAt(x, y);
-			if(foundSign && splitsign(foundSign->text.c_str()))
+			if(foundSign && sign::splitsign(foundSign->text.c_str()))
 				return false;
 		}
 	}
@@ -604,30 +609,43 @@ bool GameController::MouseUp(int x, int y, unsigned button)
 		if (!gameModel->GetActiveTool(0) || gameModel->GetActiveTool(0)->GetIdentifier() != "DEFAULT_UI_SIGN" || button != BUTTON_LEFT) //If it's not a sign tool or you are right/middle clicking
 		{
 			sign * foundSign = GetSignAt(x, y);
-			if(foundSign) {
+			if (foundSign)
+			{
 				const char* str = foundSign->text.c_str();
 				char type;
-				int pos = splitsign(str, &type);
+				int pos = sign::splitsign(str, &type);
 				if (pos)
 				{
 					ret = false;
-					if(type == 'c' || type == 't') {
+					if (type == 'c' || type == 't' || type == 's')
+					{
 						char buff[256];
 						strcpy(buff, str+3);
-						buff[pos]=0;
-						int tempSaveID = format::StringToNumber<int>(std::string(buff));
-						if (tempSaveID)
+						buff[pos-3] = 0;
+						switch (type)
 						{
-							if (str[1] == 'c')
-								OpenSavePreview(tempSaveID, 0, false);
-							else if (str[1] == 't')
-							{
-								char url[256];
-								sprintf(url, "http://powdertoy.co.uk/Discussions/Thread/View.html?Thread=%i", tempSaveID);
-								OpenURI(url);
-							}
+						case 'c':
+						{
+							int saveID = format::StringToNumber<int>(std::string(buff));
+							if (saveID)
+								OpenSavePreview(saveID, 0, false);
+							break;
 						}
-					} else if(type == 'b') {
+						case 't':
+						{
+							// buff is already confirmed to be a number by sign::splitsign
+							std::stringstream uri;
+							uri << "http://powdertoy.co.uk/Discussions/Thread/View.html?Thread=" << buff;
+							OpenURI(uri.str());
+							break;
+						}
+						case 's':
+							OpenSearch(buff);
+							break;
+						}
+					}
+					else if (type == 'b')
+					{
 						Simulation * sim = gameModel->GetSimulation();
 						sim->create_part(-1, foundSign->x, foundSign->y, PT_SPRK);
 					}
@@ -753,9 +771,8 @@ void GameController::Tick()
 		((LuaScriptInterface*)commandInterface)->Init();
 #endif
 #if !defined(MACOSX) && !defined(NO_INSTALL_CHECK)
-		if(!Client::Ref().GetPrefBool("InstallCheck", false))
+		if (Client::Ref().IsFirstRun())
 		{
-			Client::Ref().SetPref("InstallCheck", true);
 			Install();
 		}
 #endif
@@ -1074,10 +1091,12 @@ void GameController::SetReplaceModeFlags(int flags)
 	gameModel->GetSimulation()->replaceModeFlags = flags;
 }
 
-void GameController::OpenSearch()
+void GameController::OpenSearch(std::string searchText)
 {
 	if(!search)
 		search = new SearchController(new SearchCallback(this));
+	if (searchText.length())
+		search->DoSearch2(searchText);
 	ui::Engine::Ref().ShowWindow(search->GetView());
 }
 
@@ -1107,7 +1126,7 @@ void GameController::OpenLocalSaveWindow(bool asCurrent)
 				GameController * c;
 			public:
 				LocalSaveCallback(GameController * _c): c(_c) {}
-				virtual  ~LocalSaveCallback() {};
+				virtual  ~LocalSaveCallback() {}
 				virtual void FileSaved(SaveFile* file)
 				{
 					c->gameModel->SetSaveFile(file);
@@ -1224,8 +1243,7 @@ void GameController::OpenTags()
 {
 	if(gameModel->GetSave() && gameModel->GetSave()->GetID())
 	{
-		if (tagsWindow)
-			delete tagsWindow;
+		delete tagsWindow;
 		tagsWindow = new TagsController(new TagsCallback(this), gameModel->GetSave());
 		ui::Engine::Ref().ShowWindow(tagsWindow->GetView());
 	}
@@ -1476,7 +1494,7 @@ bool GameController::IsValidElement(int type)
 {
 	if(gameModel && gameModel->GetSimulation())
 	{
-		return (type > 0 && type < PT_NUM && gameModel->GetSimulation()->elements[type].Enabled);
+		return (type && gameModel->GetSimulation()->IsValidElement(type));
 	}
 	else
 		return false;

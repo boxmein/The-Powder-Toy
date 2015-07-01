@@ -121,6 +121,7 @@ private:
 	void enableShiftBehaviour();
 	void disableShiftBehaviour();
 	void enableCtrlBehaviour();
+	void enableCtrlBehaviour(bool isHighlighted);
 	void disableCtrlBehaviour();
 	void enableAltBehaviour();
 	void disableAltBehaviour();
@@ -176,7 +177,7 @@ public:
 	void NotifyLastToolChanged(GameModel * sender);
 
 
-	virtual void ToolTip(ui::Component * sender, ui::Point mousePosition, std::string toolTip);
+	virtual void ToolTip(ui::Point senderPosition, std::string toolTip);
 
 	virtual void OnMouseMove(int x, int y, int dx, int dy);
 	virtual void OnMouseDown(int x, int y, unsigned button);

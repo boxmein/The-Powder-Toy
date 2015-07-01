@@ -59,14 +59,14 @@ public:
 		{
 			if(toolTip2.length()>0 && GetParentWindow())
 			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip2);
+				GetParentWindow()->ToolTip(Position, toolTip2);
 			}
 		}
 		else if(x < splitPosition)
 		{
 			if(toolTip.length()>0 && GetParentWindow())
 			{
-				GetParentWindow()->ToolTip(this, ui::Point(x, y), toolTip);
+				GetParentWindow()->ToolTip(Position, toolTip);
 			}
 		}
 	}
@@ -142,8 +142,7 @@ public:
 	}
 	virtual ~SplitButton()
 	{
-		if(splitActionCallback)
-			delete splitActionCallback;
+		delete splitActionCallback;
 	}
 };
 
@@ -212,7 +211,7 @@ GameView::GameView():
 			if(v->CtrlBehaviour())
 				v->c->OpenLocalBrowse();
 			else
-				v->c->OpenSearch();
+				v->c->OpenSearch("");
 		}
 	};
 
@@ -223,7 +222,7 @@ GameView::GameView():
 	scrollBar->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	AddComponent(scrollBar);
 
-	searchButton = new ui::Button(ui::Point(currentX, Size.Y-16), ui::Point(17, 15), "", "Find & open a simulation");  //Open
+	searchButton = new ui::Button(ui::Point(currentX, Size.Y-16), ui::Point(17, 15), "", "Find & open a simulation. Hold Ctrl to load offline saves.");  //Open
 	searchButton->SetIcon(IconOpen);
 	currentX+=18;
 	searchButton->SetTogglable(false);
@@ -258,14 +257,14 @@ GameView::GameView():
 		SaveSimulationAction(GameView * _v) { v = _v; }
 		void ActionCallbackRight(ui::Button * sender)
 		{
-			if(v->CtrlBehaviour())
+			if(v->CtrlBehaviour() || !Client::Ref().GetAuthUser().ID)
 				v->c->OpenLocalSaveWindow(false);
 			else
 				v->c->OpenSaveWindow();
 		}
 		void ActionCallbackLeft(ui::Button * sender)
 		{
-			if(v->CtrlBehaviour())
+			if(v->CtrlBehaviour() || !Client::Ref().GetAuthUser().ID)
 				v->c->OpenLocalSaveWindow(true);
 			else
 				v->c->SaveAsCurrent();
@@ -412,7 +411,7 @@ GameView::GameView():
 	};
 	pauseButton = new ui::Button(ui::Point(Size.X-16, Size.Y-16), ui::Point(15, 15), "", "Pause/Resume the simulation");  //Pause
 	pauseButton->SetIcon(IconPause);
-	pauseButton->SetTogglable(true); 
+	pauseButton->SetTogglable(true);
 	pauseButton->SetActionCallback(new PauseAction(this));
 	AddComponent(pauseButton);
 
@@ -460,8 +459,7 @@ GameView::~GameView()
 
 	}
 
-	if(placeSaveThumb)
-		delete placeSaveThumb;
+	delete placeSaveThumb;
 }
 
 class GameView::MenuAction: public ui::ButtonAction
@@ -471,9 +469,9 @@ public:
 	int menuID;
 	bool needsClick;
 	MenuAction(GameView * _v, int menuID_)
-	{ 
+	{
 		v = _v;
-		menuID = menuID_; 
+		menuID = menuID_;
 		if (menuID == SC_DECO)
 			needsClick = true;
 		else
@@ -728,8 +726,7 @@ void GameView::NotifyToolListChanged(GameModel * sender)
 		tempButton->SetActionCallback(new ToolAction(this, toolList[i]));
 
 		tempButton->Appearance.SetTexture(tempTexture);
-		if(tempTexture)
-			delete tempTexture;
+		delete tempTexture;
 
 		tempButton->Appearance.BackgroundInactive = ui::Colour(toolList[i]->colRed, toolList[i]->colGreen, toolList[i]->colBlue);
 
@@ -872,7 +869,8 @@ void GameView::NotifyUserChanged(GameModel * sender)
 		((SplitButton*)loginButton)->SetShowSplit(true);
 		((SplitButton*)loginButton)->SetRightToolTip("Edit profile");
 	}
-	saveSimulationButtonEnabled = sender->GetUser().ID;
+	// saveSimulationButtonEnabled = sender->GetUser().ID;
+	saveSimulationButtonEnabled = true;
 	NotifySaveChanged(sender);
 }
 
@@ -1220,9 +1218,10 @@ void GameView::ExitPrompt()
 	new ConfirmPrompt("You are about to quit", "Are you sure you want to exit the game?", new ExitConfirmation());
 }
 
-void GameView::ToolTip(ui::Component * sender, ui::Point mousePosition, std::string toolTip)
+void GameView::ToolTip(ui::Point senderPosition, std::string toolTip)
 {
-	if(sender->Position.Y > Size.Y-17)
+	// buttom button tooltips
+	if (senderPosition.Y > Size.Y-17)
 	{
 		if (selectMode == PlaceSave || selectMode == SelectNone)
 		{
@@ -1230,14 +1229,16 @@ void GameView::ToolTip(ui::Component * sender, ui::Point mousePosition, std::str
 			isButtonTipFadingIn = true;
 		}
 	}
-	else if(sender->Position.X > Size.X-BARSIZE)// < Size.Y-(quickOptionButtons.size()+1)*16)
+	// quickoption and menu tooltips
+	else if(senderPosition.X > Size.X-BARSIZE)// < Size.Y-(quickOptionButtons.size()+1)*16)
 	{
 		this->toolTip = toolTip;
-		toolTipPosition = ui::Point(Size.X-27-Graphics::textwidth((char*)toolTip.c_str()), sender->Position.Y+3);
+		toolTipPosition = ui::Point(Size.X-27-Graphics::textwidth((char*)toolTip.c_str()), senderPosition.Y+3);
 		if(toolTipPosition.Y+10 > Size.Y-MENUSIZE)
 			toolTipPosition = ui::Point(Size.X-27-Graphics::textwidth((char*)toolTip.c_str()), Size.Y-MENUSIZE-10);
 		isToolTipFadingIn = true;
 	}
+	// element tooltips
 	else
 	{
 		this->toolTip = toolTip;
@@ -1597,11 +1598,8 @@ void GameView::OnKeyRelease(int key, Uint16 character, bool shift, bool ctrl, bo
 		disableShiftBehaviour();
 		break;
 	case 'z':
-		if(!ctrl)
-		{
-			if(!zoomCursorFixed && !alt)
-				c->SetZoomEnabled(false);
-		}
+		if(!zoomCursorFixed && !alt)
+			c->SetZoomEnabled(false);
 		break;
 	}
 }
@@ -1640,6 +1638,35 @@ void GameView::OnTick(float dt)
 	{
 		c->DrawLine(toolIndex, c->PointTranslate(drawPoint1), lineSnapCoords(c->PointTranslate(drawPoint1), currentMouse));
 	}
+
+	sign * foundSign = c->GetSignAt(mousePosition.X, mousePosition.Y);
+	if (foundSign)
+	{
+		const char* str = foundSign->text.c_str();
+		char type;
+		int pos = sign::splitsign(str, &type);
+		if (type == 'c' || type == 't' || type == 's')
+		{
+			char buff[256];
+			strcpy(buff, str+3);
+			buff[pos-3] = 0;
+			std::stringstream tooltip;
+			switch (type)
+			{
+			case 'c':
+				tooltip << "Go to save ID:" << buff;
+				break;
+			case 't':
+				tooltip << "Open forum thread " << buff << " in browser";
+				break;
+			case 's':
+				tooltip << "Search for " << buff;
+				break;
+			}
+			ToolTip(ui::Point(0, Size.Y), tooltip.str());
+		}
+	}
+
 	if(introText)
 	{
 		introText -= int(dt)>0?((int)dt < 5? dt:5):1;
@@ -1866,8 +1893,7 @@ void GameView::NotifyLogChanged(GameModel * sender, string entry)
 
 void GameView::NotifyPlaceSaveChanged(GameModel * sender)
 {
-	if(placeSaveThumb)
-		delete placeSaveThumb;
+	delete placeSaveThumb;
 	if(sender->GetPlaceSave())
 	{
 		placeSaveThumb = SaveRenderer::Ref().Render(sender->GetPlaceSave());
@@ -1919,20 +1945,32 @@ void GameView::disableAltBehaviour()
 	}
 }
 
-void GameView::enableCtrlBehaviour()
+void GameView::enableCtrlBehaviour() {
+	// "Usual" Ctrl-holding behavior uses highlights
+	enableCtrlBehaviour(true);
+}
+
+void GameView::enableCtrlBehaviour(bool isHighlighted)
 {
 	if(!ctrlBehaviour)
 	{
 		ctrlBehaviour = true;
 
 		//Show HDD save & load buttons
-		saveSimulationButton->Appearance.BackgroundInactive = saveSimulationButton->Appearance.BackgroundHover = ui::Colour(255, 255, 255);
-		saveSimulationButton->Appearance.TextInactive = saveSimulationButton->Appearance.TextHover = ui::Colour(0, 0, 0);
+		if (isHighlighted) {
+			saveSimulationButton->Appearance.BackgroundInactive = saveSimulationButton->Appearance.BackgroundHover = ui::Colour(255, 255, 255);
+			saveSimulationButton->Appearance.TextInactive = saveSimulationButton->Appearance.TextHover = ui::Colour(0, 0, 0);
+		}
+
 		saveSimulationButton->Enabled = true;
 		SetSaveButtonTooltips();
-		searchButton->Appearance.BackgroundInactive = searchButton->Appearance.BackgroundHover = ui::Colour(255, 255, 255);
-		searchButton->Appearance.TextInactive = searchButton->Appearance.TextHover = ui::Colour(0, 0, 0);
-		searchButton->SetToolTip("Open a simulation from your hard drive");
+
+		if (isHighlighted) {
+			searchButton->Appearance.BackgroundInactive = searchButton->Appearance.BackgroundHover = ui::Colour(255, 255, 255);
+			searchButton->Appearance.TextInactive = searchButton->Appearance.TextHover = ui::Colour(0, 0, 0);
+		}
+
+		searchButton->SetToolTip("Open a simulation from your hard drive.");
 		if (currentSaveType == 2)
 			((SplitButton*)saveSimulationButton)->SetShowSplit(true);
 		if(isMouseDown || (toolBrush && drawMode == DrawPoints))
@@ -1960,7 +1998,7 @@ void GameView::disableCtrlBehaviour()
 		searchButton->Appearance.BackgroundInactive = ui::Colour(0, 0, 0);
 		searchButton->Appearance.BackgroundHover = ui::Colour(20, 20, 20);
 		searchButton->Appearance.TextInactive = searchButton->Appearance.TextHover = ui::Colour(255, 255, 255);
-		searchButton->SetToolTip("Find & open a simulation");
+		searchButton->SetToolTip("Find & open a simulation. Hold Ctrl to load offline saves.");
 		if (currentSaveType == 2)
 			((SplitButton*)saveSimulationButton)->SetShowSplit(false);
 		if(!shiftBehaviour)
@@ -1972,12 +2010,14 @@ void GameView::disableCtrlBehaviour()
 
 void GameView::SetSaveButtonTooltips()
 {
-	if (ctrlBehaviour)
-		((SplitButton*)saveSimulationButton)->SetToolTips("Save the simulation to your hard drive", "Save the simulation to your hard drive");
+	if (!Client::Ref().GetAuthUser().ID)
+		((SplitButton*)saveSimulationButton)->SetToolTips("Overwrite the open simulation on your hard drive.", "Save the simulation to your hard drive. Login to save online.");
+	else if (ctrlBehaviour)
+		((SplitButton*)saveSimulationButton)->SetToolTips("Overwrite the open simulation on your hard drive.", "Save the simulation to your hard drive.");
 	else if (((SplitButton*)saveSimulationButton)->GetShowSplit())
 		((SplitButton*)saveSimulationButton)->SetToolTips("Reupload the current simulation", "Modify simulation properties");
 	else
-		((SplitButton*)saveSimulationButton)->SetToolTips("Reupload the current simulation", "Upload a new simulation");
+		((SplitButton*)saveSimulationButton)->SetToolTips("Reupload the current simulation", "Upload a new simulation. Hold Ctrl to save offline.");
 }
 
 void GameView::OnDraw()
@@ -2043,8 +2083,8 @@ void GameView::OnDraw()
 			{
 				if(placeSaveThumb && selectPoint2.X!=-1)
 				{
-					int thumbX = selectPoint2.X - (placeSaveThumb->Width/2);
-					int thumbY = selectPoint2.Y - (placeSaveThumb->Height/2);
+					int thumbX = selectPoint2.X - (placeSaveThumb->Width/2) + CELL/2;
+					int thumbY = selectPoint2.Y - (placeSaveThumb->Height/2) + CELL/2;
 
 					ui::Point thumbPos = c->NormaliseBlockCoord(ui::Point(thumbX, thumbY));
 
