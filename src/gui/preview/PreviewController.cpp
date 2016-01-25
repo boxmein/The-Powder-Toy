@@ -7,6 +7,7 @@
 #include "gui/dialogues/ErrorMessage.h"
 #include "gui/login/LoginController.h"
 #include "Controller.h"
+#include "Platform.h"
 
 PreviewController::PreviewController(int saveID, int saveDate, bool instant, ControllerCallback * callback):
 	saveId(saveID),
@@ -85,6 +86,7 @@ bool PreviewController::SubmitComment(std::string comment)
 		}
 		else
 		{
+			previewModel->CommentAdded();
 			previewModel->UpdateComments(1);
 		}
 	}
@@ -125,7 +127,7 @@ void PreviewController::Report(std::string message)
 		new ErrorMessage("Information", "Report submitted"); //TODO: InfoMessage
 	}
 	else
-		new ErrorMessage("Error", "Unable file report");
+		new ErrorMessage("Error", "Unable file report: " + Client::Ref().GetLastError());
 }
 
 void PreviewController::FavouriteSave()
@@ -150,7 +152,7 @@ void PreviewController::OpenInBrowser()
 {
 	std::stringstream uriStream;
 	uriStream << "http://" << SERVER << "/Browse/View.html?ID=" << saveId;
-	OpenURI(uriStream.str());
+	Platform::OpenURI(uriStream.str());
 }
 
 bool PreviewController::NextCommentPage()

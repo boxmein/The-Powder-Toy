@@ -59,10 +59,9 @@ public:
 	GameView * GetView();
 	sign * GetSignAt(int x, int y);
 
-	bool BrushChanged(int brushType, int rx, int ry);
 	bool MouseMove(int x, int y, int dx, int dy);
 	bool MouseDown(int x, int y, unsigned button);
-	bool MouseUp(int x, int y, unsigned button);
+	bool MouseUp(int x, int y, unsigned button, char type);
 	bool MouseWheel(int x, int y, int d);
 	bool KeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt);
 	bool KeyRelease(int key, Uint16 character, bool shift, bool ctrl, bool alt);
@@ -84,7 +83,7 @@ public:
 	void SetBrushSize(ui::Point newSize);
 	void AdjustZoomSize(int direction, bool logarithmic = false);
 	void ToolClick(int toolSelection, ui::Point point);
-	void DrawPoints(int toolSelection, queue<ui::Point> & pointQueue);
+	void DrawPoints(int toolSelection, ui::Point oldPos, ui::Point newPos, bool held);
 	void DrawRect(int toolSelection, ui::Point point1, ui::Point point2);
 	void DrawLine(int toolSelection, ui::Point point1, ui::Point point2);
 	void DrawFill(int toolSelection, ui::Point point);
@@ -106,6 +105,7 @@ public:
 	std::vector<Menu*> GetMenuList();
 	Tool * GetActiveTool(int selection);
 	void SetActiveTool(int toolSelection, Tool * tool);
+	void SetLastTool(Tool * tool);
 	int GetReplaceModeFlags();
 	void SetReplaceModeFlags(int flags);
 	void ActiveToolChanged(int toolSelection, Tool *tool);
@@ -154,9 +154,10 @@ public:
 	void SwitchGravity();
 	void SwitchAir();
 	void ToggleAHeat();
+	bool GetAHeatEnable();
 	void ToggleNewtonianGravity();
 
-	void LoadClipboard();
+	bool LoadClipboard();
 	void LoadStamp(GameSave *stamp);
 
 	void RemoveNotification(Notification * notification);

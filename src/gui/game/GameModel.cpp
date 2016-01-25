@@ -294,7 +294,7 @@ void GameModel::BuildMenus()
 	//Build other menus from wall data
 	for(int i = 0; i < UI_WALLCOUNT; i++)
 	{
-		Tool * tempTool = new WallTool(i, "", std::string(sim->wtypes[i].descs), PIXR(sim->wtypes[i].colour), PIXG(sim->wtypes[i].colour), PIXB(sim->wtypes[i].colour), "DEFAULT_WL_"+format::NumberToString<int>(i), sim->wtypes[i].textureGen);
+		Tool * tempTool = new WallTool(i, "", std::string(sim->wtypes[i].descs), PIXR(sim->wtypes[i].colour), PIXG(sim->wtypes[i].colour), PIXB(sim->wtypes[i].colour), sim->wtypes[i].identifier, sim->wtypes[i].textureGen);
 		menuList[SC_WALL]->AddTool(tempTool);
 		//sim->wtypes[i]
 	}
@@ -313,13 +313,14 @@ void GameModel::BuildMenus()
 	menuList[SC_TOOL]->AddTool(new SampleTool(this));
 
 	//Add decoration tools to menu
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_ADD, "ADD", "Colour blending: Add.", 0, 0, 0, "DEFAULT_DECOR_ADD"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_SUBTRACT, "SUB", "Colour blending: Subtract.", 0, 0, 0, "DEFAULT_DECOR_SUB"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_MULTIPLY, "MUL", "Colour blending: Multiply.", 0, 0, 0, "DEFAULT_DECOR_MUL"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_DIVIDE, "DIV", "Colour blending: Divide." , 0, 0, 0, "DEFAULT_DECOR_DIV"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_SMUDGE, "SMDG", "Smudge tool, blends surrounding deco together.", 0, 0, 0, "DEFAULT_DECOR_SMDG"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_CLEAR, "CLR", "Erase any set decoration.", 0, 0, 0, "DEFAULT_DECOR_CLR"));
-	menuList[SC_DECO]->AddTool(new DecorationTool(DECO_DRAW, "SET", "Draw decoration (No blending).", 0, 0, 0, "DEFAULT_DECOR_SET"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_ADD, "ADD", "Colour blending: Add.", 0, 0, 0, "DEFAULT_DECOR_ADD"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_SUBTRACT, "SUB", "Colour blending: Subtract.", 0, 0, 0, "DEFAULT_DECOR_SUB"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_MULTIPLY, "MUL", "Colour blending: Multiply.", 0, 0, 0, "DEFAULT_DECOR_MUL"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_DIVIDE, "DIV", "Colour blending: Divide." , 0, 0, 0, "DEFAULT_DECOR_DIV"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_SMUDGE, "SMDG", "Smudge tool, blends surrounding deco together.", 0, 0, 0, "DEFAULT_DECOR_SMDG"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_CLEAR, "CLR", "Erase any set decoration.", 0, 0, 0, "DEFAULT_DECOR_CLR"));
+	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_DRAW, "SET", "Draw decoration (No blending).", 0, 0, 0, "DEFAULT_DECOR_SET"));
+	SetColourSelectorColour(colour); // update tool colors
 	decoToolset[0] = GetToolFromIdentifier("DEFAULT_DECOR_SET");
 	decoToolset[1] = GetToolFromIdentifier("DEFAULT_DECOR_CLR");
 	decoToolset[2] = GetToolFromIdentifier("DEFAULT_UI_SAMPLE");
@@ -575,7 +576,6 @@ void GameModel::SetSave(SaveInfo * newSave)
 			sim->grav->start_grav_async();
 		else
 			sim->grav->stop_grav_async();
-		sim->SetEdgeMode(0);
 		sim->clear_sim();
 		ren->ClearAccumulation();
 		sim->Load(saveData);
@@ -924,13 +924,14 @@ GameSave * GameModel::GetPlaceSave()
 	return placeSave;
 }
 
-void GameModel::Log(string message)
+void GameModel::Log(string message, bool printToFile)
 {
 	consoleLog.push_front(message);
 	if(consoleLog.size()>100)
 		consoleLog.pop_back();
 	notifyLogChanged(message);
-	std::cout << message << std::endl;
+	if (printToFile)
+		std::cout << message << std::endl;
 }
 
 deque<string> GameModel::GetLog()

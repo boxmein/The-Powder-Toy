@@ -5,6 +5,13 @@
 #else
 	#include <unistd.h>
 #endif
+#ifdef USE_SDL
+#ifdef SDL_INC
+#include "SDL/SDL.h"
+#else
+#include "SDL.h"
+#endif
+#endif
 
 #include "OptionsView.h"
 #include "gui/Style.h"
@@ -149,7 +156,7 @@ OptionsView::OptionsView():
 
 	scale = new ui::Checkbox(ui::Point(8, 210), ui::Point(Size.X-6, 16), "Large screen", "");
 	scale->SetActionCallback(new ScaleAction(this));
-	tempLabel = new ui::Label(ui::Point(scale->Position.X+Graphics::textwidth(scale->GetText().c_str())+20, scale->Position.Y), ui::Point(Size.X-28, 16), "\bg- Double window size for smaller screens");
+	tempLabel = new ui::Label(ui::Point(scale->Position.X+Graphics::textwidth(scale->GetText().c_str())+20, scale->Position.Y), ui::Point(Size.X-28, 16), "\bg- Double window size for larger screens");
 	tempLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;	tempLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	AddComponent(tempLabel);
 	AddComponent(scale);
@@ -162,10 +169,12 @@ OptionsView::OptionsView():
 		FullscreenAction(OptionsView * v_){	v = v_;	}
 		virtual void ActionCallback(ui::Checkbox * sender)
 		{
-#ifdef MACOSX
+#ifdef USE_SDL
+#if defined(MACOSX) && !SDL_VERSION_ATLEAST(1, 2, 15)
 			ErrorMessage::Blocking("Error", "fullscreen doesn't work on OS X");
 #else
 			v->c->SetFullscreen(sender->GetChecked());
+#endif
 #endif
 		}
 	};

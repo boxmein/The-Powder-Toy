@@ -2,6 +2,7 @@
 #include <queue>
 #include "Config.h"
 #include "Format.h"
+#include "Platform.h"
 #include "GameController.h"
 #include "GameModel.h"
 #include "client/SaveInfo.h"
@@ -109,11 +110,14 @@ public:
 	StampsCallback(GameController * cc_) { cc = cc_; }
 	virtual void ControllerExit()
 	{
-		if(cc->localBrowser->GetSave())
+		SaveFile *file = cc->localBrowser->GetSave();
+		if (file)
 		{
-			if (cc->localBrowser->GetMoveToFront())
-				Client::Ref().MoveStampToFront(cc->localBrowser->GetSave()->GetName());
-			cc->LoadStamp(cc->localBrowser->GetSave()->GetGameSave());
+			if (file->GetError().length())
+				new ErrorMessage("Error loading stamp", file->GetError());
+			else if (cc->localBrowser->GetMoveToFront())
+				Client::Ref().MoveStampToFront(file->GetName());
+			cc->LoadStamp(file->GetGameSave());
 		}
 	}
 };
@@ -148,7 +152,6 @@ GameController::GameController():
 	commandInterface = new TPTScriptInterface(this, gameModel);
 #endif
 
-	commandInterface->OnBrushChanged(gameModel->GetBrushID(), gameModel->GetBrush()->GetRadius().X, gameModel->GetBrush()->GetRadius().X);
 	ActiveToolChanged(0, gameModel->GetActiveTool(0));
 	ActiveToolChanged(1, gameModel->GetActiveTool(1));
 	ActiveToolChanged(2, gameModel->GetActiveTool(2));
@@ -355,14 +358,11 @@ void GameController::AdjustBrushSize(int direction, bool logarithmic, bool xAxis
 		gameModel->GetBrush()->SetRadius(ui::Point(oldSize.X, newSize.Y));
 	else
 		gameModel->GetBrush()->SetRadius(newSize);
-
-	BrushChanged(gameModel->GetBrushID(), gameModel->GetBrush()->GetRadius().X, gameModel->GetBrush()->GetRadius().Y);
 }
 
 void GameController::SetBrushSize(ui::Point newSize)
 {
 	gameModel->GetBrush()->SetRadius(newSize);
-	BrushChanged(gameModel->GetBrushID(), gameModel->GetBrush()->GetRadius().X, gameModel->GetBrush()->GetRadius().Y);
 }
 
 void GameController::AdjustZoomSize(int direction, bool logarithmic)
@@ -425,7 +425,7 @@ void GameController::DrawRect(int toolSelection, ui::Point point1, ui::Point poi
 	Brush * cBrush = gameModel->GetBrush();
 	if(!activeTool || !cBrush)
 		return;
-	activeTool->SetStrength(gameModel->GetToolStrength());
+	activeTool->SetStrength(1.0f);
 	activeTool->DrawRect(sim, cBrush, point1, point2);
 }
 
@@ -437,7 +437,7 @@ void GameController::DrawLine(int toolSelection, ui::Point point1, ui::Point poi
 	Brush * cBrush = gameModel->GetBrush();
 	if(!activeTool || !cBrush)
 		return;
-	activeTool->SetStrength(gameModel->GetToolStrength());
+	activeTool->SetStrength(1.0f);
 	activeTool->DrawLine(sim, cBrush, point1, point2);
 }
 
@@ -449,60 +449,37 @@ void GameController::DrawFill(int toolSelection, ui::Point point)
 	Brush * cBrush = gameModel->GetBrush();
 	if(!activeTool || !cBrush)
 		return;
-	activeTool->SetStrength(gameModel->GetToolStrength());
+	activeTool->SetStrength(1.0f);
 	activeTool->DrawFill(sim, cBrush, point);
 }
 
-void GameController::DrawPoints(int toolSelection, queue<ui::Point> & pointQueue)
+void GameController::DrawPoints(int toolSelection, ui::Point oldPos, ui::Point newPos, bool held)
 {
 	Simulation * sim = gameModel->GetSimulation();
 	Tool * activeTool = gameModel->GetActiveTool(toolSelection);
 	gameModel->SetLastTool(activeTool);
 	Brush * cBrush = gameModel->GetBrush();
-	if(!activeTool || !cBrush)
+	if (!activeTool || !cBrush)
 	{
-		if(!pointQueue.empty())
-		{
-			while(!pointQueue.empty())
-			{
-				pointQueue.pop();
-			}
-		}
 		return;
 	}
 
 	activeTool->SetStrength(gameModel->GetToolStrength());
-	if(!pointQueue.empty())
-	{
-		ui::Point sPoint(0, 0);
-		int size = pointQueue.size();
-		bool first = true;
-		while(!pointQueue.empty())
-		{
-			ui::Point fPoint = pointQueue.front();
-			pointQueue.pop();
-			if(size > 1)
-			{
-				if (!first)
-				{
-					activeTool->DrawLine(sim, cBrush, sPoint, fPoint, true);
-				}
-				first = false;
-			}
-			else
-			{
-				activeTool->Draw(sim, cBrush, fPoint);
-			}
-			sPoint = fPoint;
-		}
-	}
+	if (!held)
+		activeTool->Draw(sim, cBrush, newPos);
+	else
+		activeTool->DrawLine(sim, cBrush, oldPos, newPos, true);
 }
 
-void GameController::LoadClipboard()
+bool GameController::LoadClipboard()
 {
-	gameModel->SetPlaceSave(gameModel->GetClipboard());
-	if(gameModel->GetPlaceSave() && gameModel->GetPlaceSave()->Collapsed())
+	GameSave *clip = gameModel->GetClipboard();
+	if (!clip)
+		return false;
+	gameModel->SetPlaceSave(clip);
+	if (gameModel->GetPlaceSave() && gameModel->GetPlaceSave()->Collapsed())
 		gameModel->GetPlaceSave()->Expand();
+	return true;
 }
 
 void GameController::LoadStamp(GameSave *stamp)
@@ -575,11 +552,6 @@ bool GameController::MouseMove(int x, int y, int dx, int dy)
 	return commandInterface->OnMouseMove(x, y, dx, dy);
 }
 
-bool GameController::BrushChanged(int brushType, int rx, int ry)
-{
-	return commandInterface->OnBrushChanged(brushType, rx, ry);
-}
-
 bool GameController::MouseDown(int x, int y, unsigned button)
 {
 	bool ret = commandInterface->OnMouseDown(x, y, button);
@@ -598,9 +570,11 @@ bool GameController::MouseDown(int x, int y, unsigned button)
 	return ret;
 }
 
-bool GameController::MouseUp(int x, int y, unsigned button)
+bool GameController::MouseUp(int x, int y, unsigned button, char type)
 {
-	bool ret = commandInterface->OnMouseUp(x, y, button);
+	bool ret = commandInterface->OnMouseUp(x, y, button, type);
+	if (type)
+		return ret;
 	if (ret && foundSign && y<YRES && x<XRES && !gameView->GetPlacingSave())
 	{
 		ui::Point point = gameModel->AdjustZoomCoords(ui::Point(x, y));
@@ -636,7 +610,7 @@ bool GameController::MouseUp(int x, int y, unsigned button)
 							// buff is already confirmed to be a number by sign::splitsign
 							std::stringstream uri;
 							uri << "http://powdertoy.co.uk/Discussions/Thread/View.html?Thread=" << buff;
-							OpenURI(uri.str());
+							Platform::OpenURI(uri.str());
 							break;
 						}
 						case 's':
@@ -702,7 +676,7 @@ bool GameController::KeyPress(int key, Uint16 character, bool shift, bool ctrl, 
 			sim->player2.comm = (int)(sim->player2.comm)|0x04;  //Jump command
 		}
 
-		if((!sim->elementCount[PT_STKM2] || ctrl) && gameView->GetSelectMode() == SelectNone)
+		if (!sim->elementCount[PT_STKM2] || ctrl)
 		{
 			switch(key)
 			{
@@ -820,6 +794,7 @@ void GameController::ResetSpark()
 			else
 				sim->kill_part(i);
 		}
+	memset(sim->wireless, 0, sizeof(sim->wireless));
 }
 
 void GameController::SwitchGravity()
@@ -869,6 +844,11 @@ void GameController::ToggleAHeat()
 	gameModel->SetAHeatEnable(!gameModel->GetAHeatEnable());
 }
 
+bool GameController::GetAHeatEnable()
+{
+	return gameModel->GetAHeatEnable();
+}
+
 void GameController::ToggleNewtonianGravity()
 {
 	if (gameModel->GetSimulation()->grav->ngrav_enable)
@@ -899,9 +879,12 @@ void GameController::Update()
 		gameView->SetSample(gameModel->GetSimulation()->GetSample(pos.X, pos.Y));
 
 	Simulation * sim = gameModel->GetSimulation();
-	sim->UpdateSim();
+	sim->BeforeSim();
 	if (!sim->sys_pause || sim->framerender)
+	{
 		sim->UpdateParticles(0, NPART);
+		sim->AfterSim();
+	}
 
 	//if either STKM or STK2 isn't out, reset it's selected element. Defaults to PT_DUST unless right selected is something else
 	//This won't run if the stickmen dies in a frame, since it respawns instantly
@@ -912,14 +895,14 @@ void GameController::Update()
 		if (activeTool->GetIdentifier().find("DEFAULT_PT_") != activeTool->GetIdentifier().npos)
 		{
 			int sr = activeTool->GetToolID();
-			if ((sr>0 && sr<PT_NUM && sim->elements[sr].Enabled && sim->elements[sr].Falldown>0) || sr==SPC_AIR || sr == PT_NEUT || sr == PT_PHOT || sr == PT_LIGH)
+			if (sr && sim->IsValidElement(sr))
 				rightSelected = sr;
 		}
 
 		if (!sim->player.spwn)
-			sim->player.elem = rightSelected;
+			Element_STKM::STKM_set_element(sim, &sim->player, rightSelected);
 		if (!sim->player2.spwn)
-			sim->player2.elem = rightSelected;
+			Element_STKM::STKM_set_element(sim, &sim->player2, rightSelected);
 	}
 	if(renderOptions && renderOptions->HasExited)
 	{
@@ -1081,6 +1064,11 @@ void GameController::SetActiveTool(int toolSelection, Tool * tool)
 		((PropertyTool *)tool)->OpenWindow(gameModel->GetSimulation());
 }
 
+void GameController::SetLastTool(Tool * tool)
+{
+	gameModel->SetLastTool(tool);
+}
+
 int GameController::GetReplaceModeFlags()
 {
 	return gameModel->GetSimulation()->replaceModeFlags;
@@ -1113,10 +1101,12 @@ void GameController::OpenLocalSaveWindow(bool asCurrent)
 		sim->SaveSimOptions(gameSave);
 		gameSave->paused = gameModel->GetPaused();
 
-		std::string filename = "";
+		SaveFile tempSave("");
 		if (gameModel->GetSaveFile())
-			filename = gameModel->GetSaveFile()->GetDisplayName();
-		SaveFile tempSave(filename);
+		{
+			tempSave.SetFileName(gameModel->GetSaveFile()->GetName());
+			tempSave.SetDisplayName(gameModel->GetSaveFile()->GetDisplayName());
+		}
 		tempSave.SetGameSave(gameSave);
 
 		if (!asCurrent || !gameModel->GetSaveFile())
@@ -1137,9 +1127,12 @@ void GameController::OpenLocalSaveWindow(bool asCurrent)
 		}
 		else if (gameModel->GetSaveFile())
 		{
+			gameModel->SetSaveFile(&tempSave);
 			Client::Ref().MakeDirectory(LOCAL_SAVE_DIR);
 			if (Client::Ref().WriteFile(gameSave->Serialise(), gameModel->GetSaveFile()->GetName()))
 				new ErrorMessage("Error", "Unable to write save file.");
+			else
+				gameModel->SetInfoTip("Saved Successfully");
 		}
 	}
 }
@@ -1412,7 +1405,6 @@ void GameController::Vote(int direction)
 void GameController::ChangeBrush()
 {
 	gameModel->SetBrushID(gameModel->GetBrushID()+1);
-	BrushChanged(gameModel->GetBrushID(), gameModel->GetBrush()->GetRadius().X, gameModel->GetBrush()->GetRadius().Y);
 }
 
 void GameController::ClearSim()
@@ -1463,15 +1455,16 @@ void GameController::ParticleDebug(int mode, int x, int y)
 		else
 			logmessage << "Updated particles #" << debug_currentParticle << " through #" << i;
 	}
-	gameModel->Log(logmessage.str());
+	gameModel->Log(logmessage.str(), false);
 
 	sim->UpdateParticles(debug_currentParticle, i);
 	if (i < NPART-1)
 		sim->debug_currentParticle = i+1;
 	else
 	{
+		sim->Aftersim();
 		sim->framerender = 1;
-		sim->UpdateSim();
+		sim->BeforeSim();
 		sim->framerender = 0;
 		sim->debug_currentParticle = 0;
 	}
@@ -1525,7 +1518,7 @@ void GameController::NotifyNewNotification(Client * sender, std::pair<std::strin
 
 		virtual void Action()
 		{
-			OpenURI(link);
+			Platform::OpenURI(link);
 		}
 	};
 	gameModel->AddNotification(new LinkNotification(notification.second, notification.first));
@@ -1555,24 +1548,30 @@ void GameController::NotifyUpdateAvailable(Client * sender)
 
 		virtual void Action()
 		{
-			std::string currentVersion, newVersion;
-#ifdef BETA
-			currentVersion = MTOS(SAVE_VERSION) "." MTOS(MINOR_VERSION) " Beta, Build " MTOS(BUILD_NUM);
-#elif defined(SNAPSHOT)
-			currentVersion = "Snapshot " MTOS(SNAPSHOT_ID);
+			UpdateInfo info = Client::Ref().GetUpdateInfo();
+			std::stringstream updateMessage;
+			updateMessage << "Are you sure you want to run the updater? Please save any changes before updating.\n\nCurrent version:\n ";
+
+#ifdef SNAPSHOT
+			updateMessage << "Snapshot " << SNAPSHOT_ID;
+#elif defined(BETA)
+			updateMessage << SAVE_VERSION << "." << MINOR_VERSION << " Beta, Build " << BUILD_NUM;
 #else
-			currentVersion = MTOS(SAVE_VERSION) "." MTOS(MINOR_VERSION) " Stable, Build " MTOS(BUILD_NUM);
+			updateMessage << SAVE_VERSION << "." << MINOR_VERSION << " Stable, Build " << BUILD_NUM;
 #endif
 
-			UpdateInfo info = Client::Ref().GetUpdateInfo();
-			if(info.Type == UpdateInfo::Beta)
-				newVersion = format::NumberToString<int>(info.Major) + " " + format::NumberToString<int>(info.Minor) + " Beta, Build " + format::NumberToString<int>(info.Build);
-			else if(info.Type == UpdateInfo::Snapshot)
-				newVersion = "Snapshot " + format::NumberToString<int>(info.Time);
+			updateMessage << "\nNew version:\n ";
+			if (info.Type == UpdateInfo::Beta)
+				updateMessage << info.Major << " " << info.Minor << " Beta, Build " << info.Build;
+			else if (info.Type == UpdateInfo::Snapshot)
+				updateMessage << "Snapshot " << info.Time;
 			else if(info.Type == UpdateInfo::Stable)
-				newVersion = format::NumberToString<int>(info.Major) + " " + format::NumberToString<int>(info.Minor) + " Stable, Build " + format::NumberToString<int>(info.Build);
+				updateMessage << info.Major << " " << info.Minor << " Stable, Build " << info.Build;
 
-			new ConfirmPrompt("Run Updater", "Are you sure you want to run the updater, please save any changes before updating.\n\nCurrent version:\n " + currentVersion + "\nNew version:\n " + newVersion, new UpdateConfirmation(c));
+			if (info.Changelog.length())
+				updateMessage << "\n\nChangelog:\n" << info.Changelog;
+
+			new ConfirmPrompt("Run Updater", updateMessage.str(), new UpdateConfirmation(c));
 		}
 	};
 

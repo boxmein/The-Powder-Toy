@@ -106,6 +106,7 @@ int luatpt_register_mouseclick(lua_State* l);
 int luatpt_unregister_mouseclick(lua_State* l);
 int luatpt_input(lua_State* l);
 int luatpt_message_box(lua_State* l);
+int luatpt_confirm(lua_State* l);
 int luatpt_get_numOfParts(lua_State* l);
 int luatpt_start_getPartIndex(lua_State* l);
 int luatpt_next_getPartIndex(lua_State* l);
@@ -128,8 +129,6 @@ int luatpt_getscript(lua_State* l);
 int luatpt_setwindowsize(lua_State* l);
 
 int luatpt_screenshot(lua_State* l);
-int luatpt_getclip(lua_State* l);
-int luatpt_setclip(lua_State* l);
 
 
 #endif /* LUASCRIPTHELPER_H_ */

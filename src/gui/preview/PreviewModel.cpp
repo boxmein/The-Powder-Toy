@@ -7,6 +7,7 @@
 
 PreviewModel::PreviewModel():
 	doOpen(false),
+	canOpen(true),
 	save(NULL),
 	saveData(NULL),
 	saveComments(NULL),
@@ -25,9 +26,9 @@ void PreviewModel::SetFavourite(bool favourite)
 		if (Client::Ref().FavouriteSave(save->id, favourite) == RequestOkay)
 			save->Favourite = favourite;
 		else if (favourite)
-			throw PreviewModelException("Error, could not fav. the save, are you logged in?");
+			throw PreviewModelException("Error, could not fav. the save: " + Client::Ref().GetLastError());
 		else
-			throw PreviewModelException("Error, could not unfav. the save, are you logged in?");
+			throw PreviewModelException("Error, could not unfav. the save: " + Client::Ref().GetLastError());
 		notifySaveChanged();
 	}
 }
@@ -92,6 +93,11 @@ bool PreviewModel::GetDoOpen()
 	return doOpen;
 }
 
+bool PreviewModel::GetCanOpen()
+{
+	return canOpen;
+}
+
 SaveInfo * PreviewModel::GetSave()
 {
 	return save;
@@ -135,6 +141,13 @@ void PreviewModel::UpdateComments(int pageNumber)
 	}
 }
 
+void PreviewModel::CommentAdded()
+{
+	if (save)
+		save->Comments++;
+	commentsTotal++;
+}
+
 void PreviewModel::OnResponseReady(void * object, int identifier)
 {
 	if (identifier == 1)
@@ -158,9 +171,9 @@ void PreviewModel::OnResponseReady(void * object, int identifier)
 			saveComments = NULL;
 		}
 		saveComments = (std::vector<SaveComment*>*)object;
-		std::cout << object << std::endl;
 		commentsLoaded = true;
 		notifySaveCommentsChanged();
+		notifyCommentsPageChanged();
 	}
 
 	if (identifier == 1 || identifier == 2)
@@ -170,11 +183,15 @@ void PreviewModel::OnResponseReady(void * object, int identifier)
 			commentsTotal = save->Comments;
 			try
 			{
-				save->SetGameSave(new GameSave(*saveData));
+				GameSave *gameSave = new GameSave(*saveData);
+				if (gameSave->fromNewerVersion)
+					new ErrorMessage("This save is from a newer version", "Please update TPT in game or at http://powdertoy.co.uk");
+				save->SetGameSave(gameSave);
 			}
 			catch(ParseException &e)
 			{
 				new ErrorMessage("Error", e.what());
+				canOpen = false;
 			}
 			notifySaveChanged();
 			notifyCommentsPageChanged();
@@ -185,6 +202,30 @@ void PreviewModel::OnResponseReady(void * object, int identifier)
 	}
 }
 
+void PreviewModel::OnResponseFailed(int identifier)
+{
+	if (identifier == 3)
+	{
+		if (saveComments)
+		{
+			for (size_t i = 0; i < saveComments->size(); i++)
+				delete saveComments->at(i);
+			saveComments->clear();
+			delete saveComments;
+			saveComments = NULL;
+		}
+		saveComments = NULL;
+		commentsLoaded = true;
+		notifySaveCommentsChanged();
+	}
+	else
+	{
+		for (size_t i = 0; i < observers.size(); i++)
+		{
+			observers[i]->SaveLoadingError(Client::Ref().GetLastError());
+		}
+	}
+}
 
 void PreviewModel::Update()
 {

@@ -2,7 +2,6 @@
 
 #include <stack>
 #include "Singleton.h"
-#include "Platform.h"
 #include "graphics/Graphics.h"
 #include "Window.h"
 
@@ -36,8 +35,8 @@ namespace ui
 		void Begin(int width, int height);
 		inline bool Running() { return running_; }
 		inline bool Broken() { return break_; } 
-		inline int LastTick() { return lastTick; }
-		inline void LastTick(int tick) { lastTick = tick; }
+		inline long unsigned int LastTick() { return lastTick; }
+		inline void LastTick(long unsigned int tick) { lastTick = tick; }
 		void Exit();
 		void Break();
 		void UnBreak();
@@ -93,7 +92,7 @@ namespace ui
 		bool break_;
 		bool FastQuit;
 		
-		int lastTick;
+		long unsigned int lastTick;
 		int mouseb_;
 		int mousex_;
 		int mousey_;
