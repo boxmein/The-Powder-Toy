@@ -21,6 +21,7 @@
 #include "icon.h"
 #endif
 #include <signal.h>
+#include <stdexcept>
 
 #ifndef WIN
 #include <unistd.h>
@@ -45,6 +46,7 @@ extern "C" {
 #include "gui/game/GameView.h"
 
 #include "gui/dialogues/ErrorMessage.h"
+#include "gui/dialogues/ConfirmPrompt.h"
 #include "gui/interface/Keys.h"
 #include "gui/Style.h"
 
@@ -452,6 +454,7 @@ int elapsedTime = 0, currentTime = 0, lastTime = 0, currentFrame = 0;
 unsigned int lastTick = 0;
 float fps = 0, delta = 1.0f, inputScale = 1.0f;
 ui::Engine * engine = NULL;
+bool showDoubleScreenDialog = false;
 float currentWidth, currentHeight;
 
 void EventProcess(SDL_Event event)
@@ -572,6 +575,22 @@ void EventProcess(SDL_Event event)
 	}
 }
 
+void DoubleScreenDialog()
+{
+	std::stringstream message;
+	message << "Switching to double size mode since your screen was determined to be large enough: ";
+	message << desktopWidth << "x" << desktopHeight << " detected, " << WINDOWW*2 << "x" << WINDOWH*2 << " required";
+	message << "\nTo undo this, hit Cancel. You can toggle double size mode in settings at any time.";
+	if (!ConfirmPrompt::Blocking("Large screen detected", message.str()))
+	{
+		Client::Ref().SetPref("Scale", 1);
+		engine->SetScale(1);
+		engine->CloseWindow();
+#ifdef WIN
+		LoadWindowPosition(1);
+#endif
+	}
+}
 void EngineProcess()
 {
 	double frameTimeAvg = 0.0f, correctedFrameTimeAvg = 0.0f;
@@ -623,6 +642,11 @@ void EngineProcess()
 			//Run client tick every second
 			lastTick = frameStart;
 			Client::Ref().Tick();
+		}
+		if (showDoubleScreenDialog)
+		{
+			showDoubleScreenDialog = false;
+			DoubleScreenDialog();
 		}
 	}
 #ifdef DEBUG
@@ -839,6 +863,7 @@ int main(int argc, char * argv[])
 	{
 		tempScale = 2;
 		Client::Ref().SetPref("Scale", 2);
+		showDoubleScreenDialog = true;
 	}
 #ifdef WIN
 	LoadWindowPosition(tempScale);

@@ -50,8 +50,7 @@
 #include "requestbroker/APIRequest.h"
 #include "requestbroker/APIResultParser.h"
 
-#include "cajun/reader.h"
-#include "cajun/writer.h"
+#include "json/json.h"
 
 extern "C"
 {
@@ -88,33 +87,30 @@ Client::Client():
 	configFile.open("powder.pref", std::ios::binary);
 	if (configFile)
 	{
-		int fsize = configFile.tellg();
-		configFile.seekg(0, std::ios::end);
-		fsize = configFile.tellg() - (std::streampos)fsize;
-		configFile.seekg(0, std::ios::beg);
-		if(fsize)
+		try
 		{
-			try
-			{
-				json::Reader::Read(configDocument, configFile);
-				authUser.ID = ((json::Number)(configDocument["User"]["ID"])).Value();
-				authUser.SessionID = ((json::String)(configDocument["User"]["SessionID"])).Value();
-				authUser.SessionKey = ((json::String)(configDocument["User"]["SessionKey"])).Value();
-				authUser.Username = ((json::String)(configDocument["User"]["Username"])).Value();
+			preferences.clear();
+			configFile >> preferences;
+			int ID = preferences["User"]["ID"].asInt();
+			std::string Username = preferences["User"]["Username"].asString();
+			std::string SessionID = preferences["User"]["SessionID"].asString();
+			std::string SessionKey = preferences["User"]["SessionKey"].asString();
+			std::string Elevation = preferences["User"]["Elevation"].asString();
 
-				std::string userElevation = ((json::String)(configDocument["User"]["Elevation"])).Value();
-				if(userElevation == "Admin")
-					authUser.UserElevation = User::ElevationAdmin;
-				else if(userElevation == "Mod")
-					authUser.UserElevation = User::ElevationModerator;
-				else
-					authUser.UserElevation = User::ElevationNone;
-			}
-			catch (json::Exception &e)
-			{
-				authUser = User(0, "");
-				std::cerr << "Error: Could not read data from prefs: " << e.what() << std::endl;
-			}
+			authUser.ID = ID;
+			authUser.Username = Username;
+			authUser.SessionID = SessionID;
+			authUser.SessionKey = SessionKey;
+			if (Elevation == "Admin")
+				authUser.UserElevation = User::ElevationAdmin;
+			else if (Elevation == "Mod")
+				authUser.UserElevation = User::ElevationModerator;
+			else
+				authUser.UserElevation = User::ElevationNone;
+		}
+		catch (std::exception &e)
+		{
+			
 		}
 		configFile.close();
 		firstRun = false;
@@ -125,7 +121,7 @@ Client::Client():
 
 void Client::Initialise(std::string proxyString)
 {
-	if (GetPrefBool("version.update", false)==true)
+	if (GetPrefBool("version.update", false))
 	{
 		SetPref("version.update", false);
 		update_finish();
@@ -687,23 +683,20 @@ RequestStatus Client::ParseServerReturn(char *result, int status, bool json)
 	if (json)
 	{
 		std::istringstream datastream(result);
-		json::Object root;
+		Json::Value root;
 
 		try
 		{
-			json::Reader::Read(root, datastream);
+			datastream >> root;
 			// assume everything is fine if an empty [] is returned
-			if (root.Size() == 0)
+			if (root.size() == 0)
 			{
 				return RequestOkay;
 			}
-			json::Number status = root["Status"];
+			int status = root.get("Status", 1).asInt();
 			if (status != 1)
 			{
-				json::String error = root["Error"];
-				lastError = std::string(error);
-				if (lastError == "")
-					lastError = "Unspecified Error";
+				lastError = root.get("Error", "Unspecified Error").asString();
 				return RequestFailure;
 			}
 		}
@@ -768,27 +761,26 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 
 			try
 			{
-				json::Object objDocument;
-				json::Reader::Read(objDocument, dataStream);
+				Json::Value objDocument;
+				dataStream >> objDocument;
 
 				//Check session
 				if (checkSession)
 				{
-					json::Boolean sessionStatus = objDocument["Session"];
-					if(!sessionStatus.Value())
+					if (!objDocument["Session"].asBool())
 					{
 						SetAuthUser(User(0, ""));
 					}
 				}
 
 				//Notifications from server
-				json::Array notificationsArray = objDocument["Notifications"];
-				for(size_t j = 0; j < notificationsArray.Size(); j++)
+				Json::Value notificationsArray = objDocument["Notifications"];
+				for (Json::UInt j = 0; j < notificationsArray.size(); j++)
 				{
-					json::String notificationLink = notificationsArray[j]["Link"];
-					json::String notificationText = notificationsArray[j]["Text"];
+					std::string notificationLink = notificationsArray[j]["Link"].asString();
+					std::string notificationText = notificationsArray[j]["Text"].asString();
 
-					std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText.Value(), notificationLink.Value());
+					std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText, notificationLink);
 					AddServerNotification(item);
 				}
 
@@ -796,50 +788,49 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 				//MOTD
 				if (!usingAltUpdateServer || !checkSession)
 				{
-					json::String messageOfTheDay = objDocument["MessageOfTheDay"];
-					this->messageOfTheDay = messageOfTheDay.Value();
+					this->messageOfTheDay = objDocument["MessageOfTheDay"].asString();
 					notifyMessageOfTheDay();
 
 #ifndef IGNORE_UPDATES
 					//Check for updates
-					json::Object versions = objDocument["Updates"];
+					Json::Value versions = objDocument["Updates"];
 #if !defined(BETA) && !defined(SNAPSHOT)
-					json::Object stableVersion = versions["Stable"];
-					json::Number stableMajor = stableVersion["Major"];
-					json::Number stableMinor = stableVersion["Minor"];
-					json::Number stableBuild = stableVersion["Build"];
-					json::String stableFile = stableVersion["File"];
-					json::String stableChangelog = stableVersion["Changelog"];
-					if (stableMajor.Value()>SAVE_VERSION || (stableMinor.Value()>MINOR_VERSION && stableMajor.Value()==SAVE_VERSION) || stableBuild.Value()>BUILD_NUM)
+					Json::Value stableVersion = versions["Stable"];
+					int stableMajor = stableVersion["Major"].asInt();
+					int stableMinor = stableVersion["Minor"].asInt();
+					int stableBuild = stableVersion["Build"].asInt();
+					std::string stableFile = stableVersion["File"].asString();
+					std::string stableChangelog = stableVersion["Changelog"].asString();
+					if (stableMajor > SAVE_VERSION || (stableMinor > MINOR_VERSION && stableMajor == SAVE_VERSION) || stableBuild > BUILD_NUM)
 					{
 						updateAvailable = true;
-						updateInfo = UpdateInfo(stableMajor.Value(), stableMinor.Value(), stableBuild.Value(), stableFile.Value(), stableChangelog.Value(), UpdateInfo::Stable);
+						updateInfo = UpdateInfo(stableMajor, stableMinor, stableBuild, stableFile, stableChangelog, UpdateInfo::Stable);
 					}
 #endif
 
 #ifdef BETA
-					json::Object betaVersion = versions["Beta"];
-					json::Number betaMajor = betaVersion["Major"];
-					json::Number betaMinor = betaVersion["Minor"];
-					json::Number betaBuild = betaVersion["Build"];
-					json::String betaFile = betaVersion["File"];
-					json::String betaChangelog = betaVersion["Changelog"];
-					if (betaMajor.Value()>SAVE_VERSION || (betaMinor.Value()>MINOR_VERSION && betaMajor.Value()==SAVE_VERSION) || betaBuild.Value()>BUILD_NUM)
+					Json::Value betaVersion = versions["Beta"];
+					int betaMajor = betaVersion["Major"].asInt();
+					int betaMinor = betaVersion["Minor"].asInt();
+					int betaBuild = betaVersion["Build"].asInt();
+					std::string betaFile = betaVersion["File"].asString();
+					std::string betaChangelog = betaVersion["Changelog"].asString();
+					if (betaMajor > SAVE_VERSION || (betaMinor > MINOR_VERSION && betaMajor == SAVE_VERSION) || betaBuild > BUILD_NUM)
 					{
 						updateAvailable = true;
-						updateInfo = UpdateInfo(betaMajor.Value(), betaMinor.Value(), betaBuild.Value(), betaFile.Value(), betaChangelog.Value(), UpdateInfo::Beta);
+						updateInfo = UpdateInfo(betaMajor, betaMinor, betaBuild, betaFile, betaChangelog, UpdateInfo::Beta);
 					}
 #endif
 
 #ifdef SNAPSHOT
-					json::Object snapshotVersion = versions["Snapshot"];
-					json::Number snapshotSnapshot = snapshotVersion["Snapshot"];
-					json::String snapshotFile = snapshotVersion["File"];
-					json::String snapshotChangelog = snapshotVersion["Changelog"];
-					if (snapshotSnapshot.Value() > SNAPSHOT_ID)
+					Json::Value snapshotVersion = versions["Snapshot"];
+					int snapshotSnapshot = snapshotVersion["Snapshot"].asInt();
+					std::string snapshotFile = snapshotVersion["File"].asString();
+					std::string snapshotChangelog = snapshotVersion["Changelog"].asString();
+					if (snapshotSnapshot > SNAPSHOT_ID)
 					{
 						updateAvailable = true;
-						updateInfo = UpdateInfo(snapshotSnapshot.Value(), snapshotFile.Value(), snapshotChangelog.Value(), UpdateInfo::Snapshot);
+						updateInfo = UpdateInfo(snapshotSnapshot, snapshotFile, snapshotChangelog, UpdateInfo::Snapshot);
 					}
 #endif
 
@@ -850,7 +841,7 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 #endif
 				}
 			}
-			catch (json::Exception &e)
+			catch (std::exception & e)
 			{
 				//Do nothing
 			}
@@ -925,22 +916,22 @@ void Client::WritePrefs()
 	{
 		if (authUser.ID)
 		{
-			configDocument["User"]["ID"] = json::Number(authUser.ID);
-			configDocument["User"]["SessionID"] = json::String(authUser.SessionID);
-			configDocument["User"]["SessionKey"] = json::String(authUser.SessionKey);
-			configDocument["User"]["Username"] = json::String(authUser.Username);
-			if(authUser.UserElevation == User::ElevationAdmin)
-				configDocument["User"]["Elevation"] = json::String("Admin");
-			else if(authUser.UserElevation == User::ElevationModerator)
-				configDocument["User"]["Elevation"] = json::String("Mod");
+			preferences["User"]["ID"] = authUser.ID;
+			preferences["User"]["SessionID"] = authUser.SessionID;
+			preferences["User"]["SessionKey"] = authUser.SessionKey;
+			preferences["User"]["Username"] = authUser.Username;
+			if (authUser.UserElevation == User::ElevationAdmin)
+				preferences["User"]["Elevation"] = "Admin";
+			else if (authUser.UserElevation == User::ElevationModerator)
+				preferences["User"]["Elevation"] = "Mod";
 			else
-				configDocument["User"]["Elevation"] = json::String("None");
+				preferences["User"]["Elevation"] = "None";
 		}
 		else
 		{
-			configDocument["User"] = json::Null();
+			preferences["User"] = Json::nullValue;
 		}
-		json::Writer::Write(configDocument, configFile);
+		configFile << preferences;
 
 		configFile.close();
 	}
@@ -1289,13 +1280,11 @@ RequestBroker::Request * Client::SaveUserInfoAsync(UserInfo info)
 			try
 			{
 				std::istringstream dataStream((char*)data);
-				json::Object objDocument;
-				json::Reader::Read(objDocument, dataStream);
-				json::Number tempStatus = objDocument["Status"];
-
-				return (void*)(tempStatus.Value() == 1);
+				Json::Value objDocument;
+				dataStream >> objDocument;
+				return (void*)(objDocument["Status"].asInt() == 1);
 			}
-			catch (json::Exception &e)
+			catch (std::exception & e)
 			{
 				return 0;
 			}
@@ -1321,23 +1310,23 @@ RequestBroker::Request * Client::GetUserInfoAsync(std::string username)
 			try
 			{
 				std::istringstream dataStream((char*)data);
-				json::Object objDocument;
-				json::Reader::Read(objDocument, dataStream);
-				json::Object tempUser = objDocument["User"];
-				return new UserInfo(static_cast<json::Number>(tempUser["ID"]),
-									static_cast<json::Number>(tempUser["Age"]),
-									static_cast<json::String>(tempUser["Username"]),
-									static_cast<json::String>(tempUser["Biography"]),
-									static_cast<json::String>(tempUser["Location"]),
-									static_cast<json::String>(tempUser["Website"]),
-									static_cast<json::Number>(tempUser["Saves"]["Count"]),
-									static_cast<json::Number>(tempUser["Saves"]["AverageScore"]),
-									static_cast<json::Number>(tempUser["Saves"]["HighestScore"]),
-									static_cast<json::Number>(tempUser["Forum"]["Topics"]),
-									static_cast<json::Number>(tempUser["Forum"]["Replies"]),
-									static_cast<json::Number>(tempUser["Forum"]["Reputation"]));
+				Json::Value objDocument;
+				dataStream >> objDocument;
+				Json::Value tempUser = objDocument["User"];
+				return new UserInfo(tempUser["ID"].asInt(),
+									tempUser["Age"].asInt(),
+									tempUser["Username"].asString(),
+									tempUser["Biography"].asString(),
+									tempUser["Location"].asString(),
+									tempUser["Website"].asString(),
+									tempUser["Saves"]["Count"].asInt(),
+									tempUser["Saves"]["AverageScore"].asInt(),
+									tempUser["Saves"]["HighestScore"].asInt(),
+									tempUser["Forum"]["Topics"].asInt(),
+									tempUser["Forum"]["Replies"].asInt(),
+									tempUser["Forum"]["Reputation"].asInt());
 			}
-			catch (json::Exception &e)
+			catch (std::exception &e)
 			{
 				return 0;
 			}
@@ -1382,30 +1371,30 @@ LoginStatus Client::Login(std::string username, std::string password, User & use
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object objDocument;
-			json::Reader::Read(objDocument, dataStream);
+			Json::Value objDocument;
+			dataStream >> objDocument;
 			free(data);
 
-			json::Number userIDTemp = objDocument["UserID"];
-			json::String sessionIDTemp = objDocument["SessionID"];
-			json::String sessionKeyTemp = objDocument["SessionKey"];
-			json::String userElevationTemp = objDocument["Elevation"];
+			int userIDTemp = objDocument["UserID"].asInt();
+			std::string sessionIDTemp = objDocument["SessionID"].asString();
+			std::string sessionKeyTemp = objDocument["SessionKey"].asString();
+			std::string userElevationTemp = objDocument["Elevation"].asString();
 
-			json::Array notificationsArray = objDocument["Notifications"];
-			for (size_t j = 0; j < notificationsArray.Size(); j++)
+			Json::Value notificationsArray = objDocument["Notifications"];
+			for (Json::UInt j = 0; j < notificationsArray.size(); j++)
 			{
-				json::String notificationLink = notificationsArray[j]["Link"];
-				json::String notificationText = notificationsArray[j]["Text"];
+				std::string notificationLink = notificationsArray[j]["Link"].asString();
+				std::string notificationText = notificationsArray[j]["Text"].asString();
 
-				std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText.Value(), notificationLink.Value());
+				std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText, notificationLink);
 				AddServerNotification(item);
 			}
 
 			user.Username = username;
-			user.ID = userIDTemp.Value();
-			user.SessionID = sessionIDTemp.Value();
-			user.SessionKey = sessionKeyTemp.Value();
-			std::string userElevation = userElevationTemp.Value();
+			user.ID = userIDTemp;
+			user.SessionID = sessionIDTemp;
+			user.SessionKey = sessionKeyTemp;
+			std::string userElevation = userElevationTemp;
 			if(userElevation == "Admin")
 				user.UserElevation = User::ElevationAdmin;
 			else if(userElevation == "Mod")
@@ -1414,7 +1403,7 @@ LoginStatus Client::Login(std::string username, std::string password, User & use
 				user.UserElevation= User::ElevationNone;
 			return LoginOkay;
 		}
-		catch (json::Exception &e)
+		catch (std::exception &e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 			return LoginError;
@@ -1600,52 +1589,39 @@ SaveInfo * Client::GetSave(int saveID, int saveDate)
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object objDocument;
-			json::Reader::Read(objDocument, dataStream);
+			Json::Value objDocument;
+			dataStream >> objDocument;
 
-			json::Number tempID = objDocument["ID"];
-			json::Number tempScoreUp = objDocument["ScoreUp"];
-			json::Number tempScoreDown = objDocument["ScoreDown"];
-			json::Number tempMyScore = objDocument["ScoreMine"];
-			json::String tempUsername = objDocument["Username"];
-			json::String tempName = objDocument["Name"];
-			json::String tempDescription = objDocument["Description"];
-			json::Number tempDate = objDocument["Date"];
-			json::Boolean tempPublished = objDocument["Published"];
-			json::Boolean tempFavourite = objDocument["Favourite"];
-			json::Number tempComments = objDocument["Comments"];
-			json::Number tempViews = objDocument["Views"];
-			json::Number tempVersion = objDocument["Version"];
+			int tempID = objDocument["ID"].asInt();
+			int tempScoreUp = objDocument["ScoreUp"].asInt();
+			int tempScoreDown = objDocument["ScoreDown"].asInt();
+			int tempMyScore = objDocument["ScoreMine"].asInt();
+			std::string tempUsername = objDocument["Username"].asString();
+			std::string tempName = objDocument["Name"].asString();
+			std::string tempDescription = objDocument["Description"].asString();
+			int tempDate = objDocument["Date"].asInt();
+			bool tempPublished = objDocument["Published"].asBool();
+			bool tempFavourite = objDocument["Favourite"].asBool();
+			int tempComments = objDocument["Comments"].asInt();
+			int tempViews = objDocument["Views"].asInt();
+			int tempVersion = objDocument["Version"].asInt();
 
-			json::Array tagsArray = objDocument["Tags"];
+			Json::Value tagsArray = objDocument["Tags"];
 			std::list<std::string> tempTags;
+			for (Json::UInt j = 0; j < tagsArray.size(); j++)
+				tempTags.push_back(tagsArray[j].asString());
 
-			for (size_t j = 0; j < tagsArray.Size(); j++)
-			{
-				json::String tempTag = tagsArray[j];
-				tempTags.push_back(tempTag.Value());
-			}
-
-			SaveInfo * tempSave = new SaveInfo(
-					tempID.Value(),
-					tempDate.Value(),
-					tempScoreUp.Value(),
-					tempScoreDown.Value(),
-					tempMyScore.Value(),
-					tempUsername.Value(),
-					tempName.Value(),
-					tempDescription.Value(),
-					tempPublished.Value(),
-					tempTags
-					);
-			tempSave->Comments = tempComments.Value();
-			tempSave->Favourite = tempFavourite.Value();
-			tempSave->Views = tempViews.Value();
-			tempSave->Version = tempVersion.Value();
+			SaveInfo * tempSave = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown,
+			                                   tempMyScore, tempUsername, tempName, tempDescription,
+			                                   tempPublished, tempTags);
+			tempSave->Comments = tempComments;
+			tempSave->Favourite = tempFavourite;
+			tempSave->Views = tempViews;
+			tempSave->Version = tempVersion;
 			free(data);
 			return tempSave;
 		}
-		catch (json::Exception &e)
+		catch (std::exception & e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 			free(data);
@@ -1676,51 +1652,38 @@ RequestBroker::Request * Client::GetSaveAsync(int saveID, int saveDate)
 			try
 			{
 				std::istringstream dataStream((char*)data);
-				json::Object objDocument;
-				json::Reader::Read(objDocument, dataStream);
+				Json::Value objDocument;
+				dataStream >> objDocument;
 
-				json::Number tempID = objDocument["ID"];
-				json::Number tempScoreUp = objDocument["ScoreUp"];
-				json::Number tempScoreDown = objDocument["ScoreDown"];
-				json::Number tempMyScore = objDocument["ScoreMine"];
-				json::String tempUsername = objDocument["Username"];
-				json::String tempName = objDocument["Name"];
-				json::String tempDescription = objDocument["Description"];
-				json::Number tempDate = objDocument["Date"];
-				json::Boolean tempPublished = objDocument["Published"];
-				json::Boolean tempFavourite = objDocument["Favourite"];
-				json::Number tempComments = objDocument["Comments"];
-				json::Number tempViews = objDocument["Views"];
-				json::Number tempVersion = objDocument["Version"];
+				int tempID = objDocument["ID"].asInt();
+				int tempScoreUp = objDocument["ScoreUp"].asInt();
+				int tempScoreDown = objDocument["ScoreDown"].asInt();
+				int tempMyScore = objDocument["ScoreMine"].asInt();
+				std::string tempUsername = objDocument["Username"].asString();
+				std::string tempName = objDocument["Name"].asString();
+				std::string tempDescription = objDocument["Description"].asString();
+				int tempDate = objDocument["Date"].asInt();
+				bool tempPublished = objDocument["Published"].asBool();
+				bool tempFavourite = objDocument["Favourite"].asBool();
+				int tempComments = objDocument["Comments"].asInt();
+				int tempViews = objDocument["Views"].asInt();
+				int tempVersion = objDocument["Version"].asInt();
 
-				json::Array tagsArray = objDocument["Tags"];
+				Json::Value tagsArray = objDocument["Tags"];
 				std::list<std::string> tempTags;
+				for (Json::UInt j = 0; j < tagsArray.size(); j++)
+					tempTags.push_back(tagsArray[j].asString());
 
-				for (size_t j = 0; j < tagsArray.Size(); j++)
-				{
-					json::String tempTag = tagsArray[j];
-					tempTags.push_back(tempTag.Value());
-				}
-
-				SaveInfo * tempSave = new SaveInfo(
-						tempID.Value(),
-						tempDate.Value(),
-						tempScoreUp.Value(),
-						tempScoreDown.Value(),
-						tempMyScore.Value(),
-						tempUsername.Value(),
-						tempName.Value(),
-						tempDescription.Value(),
-						tempPublished.Value(),
-						tempTags
-						);
-				tempSave->Comments = tempComments.Value();
-				tempSave->Favourite = tempFavourite.Value();
-				tempSave->Views = tempViews.Value();
-				tempSave->Version = tempVersion.Value();
+				SaveInfo * tempSave = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown,
+				                               tempMyScore, tempUsername, tempName, tempDescription,
+				                               tempPublished, tempTags);
+				tempSave->Comments = tempComments;
+				tempSave->Favourite = tempFavourite;
+				tempSave->Views = tempViews;
+				tempSave->Version = tempVersion;
 				return tempSave;
 			}
-			catch (json::Exception &e)
+			catch (std::exception &e)
 			{
 				return NULL;
 			}
@@ -1744,30 +1707,22 @@ RequestBroker::Request * Client::GetCommentsAsync(int saveID, int start, int cou
 			try
 			{
 				std::istringstream dataStream((char*)data);
-				json::Array commentsArray;
-				json::Reader::Read(commentsArray, dataStream);
+				Json::Value commentsArray;
+				dataStream >> commentsArray;
 
-				for (size_t j = 0; j < commentsArray.Size(); j++)
+				for (Json::UInt j = 0; j < commentsArray.size(); j++)
 				{
-					json::Number tempUserID = commentsArray[j]["UserID"];
-					json::String tempUsername = commentsArray[j]["Username"];
-					json::String tempFormattedUsername = commentsArray[j]["FormattedUsername"];
-					std::string formattedUsername = tempFormattedUsername.Value();
-					if (formattedUsername == "jacobot" || formattedUsername == "boxmein")
+					int userID = format::StringToNumber<int>(commentsArray[j]["UserID"].asString());
+					std::string username = commentsArray[j]["Username"].asString();
+					std::string formattedUsername = commentsArray[j]["FormattedUsername"].asString();
+					if (formattedUsername == "jacobot")
 						formattedUsername = "\bt" + formattedUsername;
-					json::String tempComment = commentsArray[j]["Text"];
-					commentArray->push_back(
-								new SaveComment(
-									tempUserID.Value(),
-									tempUsername.Value(),
-									formattedUsername,
-									tempComment.Value()
-									)
-								);
+					std::string comment = commentsArray[j]["Text"].asString();
+					commentArray->push_back(new SaveComment(userID, username, formattedUsername, comment));
 				}
 				return commentArray;
 			}
-			catch (json::Exception &e)
+			catch (std::exception &e)
 			{
 				delete commentArray;
 				return NULL;
@@ -1807,20 +1762,19 @@ std::vector<std::pair<std::string, int> > * Client::GetTags(int start, int count
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object objDocument;
-			json::Reader::Read(objDocument, dataStream);
+			Json::Value objDocument;
+			dataStream >> objDocument;
 
-			json::Number tempCount = objDocument["TagTotal"];
-			resultCount = tempCount.Value();
-			json::Array tagsArray = objDocument["Tags"];
-			for (size_t j = 0; j < tagsArray.Size(); j++)
+			resultCount = objDocument["TagTotal"].asInt();
+			Json::Value tagsArray = objDocument["Tags"];
+			for (Json::UInt j = 0; j < tagsArray.size(); j++)
 			{
-				json::Number tagCount = tagsArray[j]["Count"];
-				json::String tag = tagsArray[j]["Tag"];
-				tagArray->push_back(std::pair<std::string, int>(tag.Value(), (int)tagCount.Value()));
+				int tagCount = tagsArray[j]["Count"].asInt();
+				std::string tag = tagsArray[j]["Tag"].asString();
+				tagArray->push_back(std::pair<std::string, int>(tag, tagCount));
 			}
 		}
-		catch (json::Exception &e)
+		catch (std::exception & e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 		}
@@ -1874,36 +1828,28 @@ std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, std::string q
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object objDocument;
-			json::Reader::Read(objDocument, dataStream);
+			Json::Value objDocument;
+			dataStream >> objDocument;
 
-			json::Number tempCount = objDocument["Count"];
-			resultCount = tempCount.Value();
-			json::Array savesArray = objDocument["Saves"];
-			for (size_t j = 0; j < savesArray.Size(); j++)
+			resultCount = objDocument["Count"].asInt();
+			Json::Value savesArray = objDocument["Saves"];
+			for (Json::UInt j = 0; j < savesArray.size(); j++)
 			{
-				json::Number tempID = savesArray[j]["ID"];
-				json::Number tempDate = savesArray[j]["Date"];
-				json::Number tempScoreUp = savesArray[j]["ScoreUp"];
-				json::Number tempScoreDown = savesArray[j]["ScoreDown"];
-				json::String tempUsername = savesArray[j]["Username"];
-				json::String tempName = savesArray[j]["Name"];
-				json::Number tempVersion = savesArray[j]["Version"];
-				json::Boolean tempPublished = savesArray[j]["Published"];
-				SaveInfo * tempSaveInfo = new SaveInfo(
-								tempID.Value(),
-								tempDate.Value(),
-								tempScoreUp.Value(),
-								tempScoreDown.Value(),
-								tempUsername.Value(),
-								tempName.Value()
-								);
-				tempSaveInfo->Version = tempVersion.Value();
+				int tempID = savesArray[j]["ID"].asInt();
+				int tempDate = savesArray[j]["Date"].asInt();
+				int tempScoreUp = savesArray[j]["ScoreUp"].asInt();
+				int tempScoreDown = savesArray[j]["ScoreDown"].asInt();
+				std::string tempUsername = savesArray[j]["Username"].asString();
+				std::string tempName = savesArray[j]["Name"].asString();
+				int tempVersion = savesArray[j]["Version"].asInt();
+				bool tempPublished = savesArray[j]["Published"].asBool();
+				SaveInfo * tempSaveInfo = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown, tempUsername, tempName);
+				tempSaveInfo->Version = tempVersion;
 				tempSaveInfo->SetPublished(tempPublished);
 				saveArray->push_back(tempSaveInfo);
 			}
 		}
-		catch (json::Exception &e)
+		catch (std::exception &e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 		}
@@ -1951,19 +1897,15 @@ std::list<std::string> * Client::RemoveTag(int saveID, std::string tag)
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object responseObject;
-			json::Reader::Read(responseObject, dataStream);
+			Json::Value responseObject;
+			dataStream >> responseObject;
 
-			json::Array tagsArray = responseObject["Tags"];
+			Json::Value tagsArray = responseObject["Tags"];
 			tags = new std::list<std::string>();
-
-			for (size_t j = 0; j < tagsArray.Size(); j++)
-			{
-				json::String tempTag = tagsArray[j];
-				tags->push_back(tempTag.Value());
-			}
+			for (Json::UInt j = 0; j < tagsArray.size(); j++)
+				tags->push_back(tagsArray[j].asString());
 		}
-		catch (json::Exception &e)
+		catch (std::exception &e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 		}
@@ -1997,19 +1939,15 @@ std::list<std::string> * Client::AddTag(int saveID, std::string tag)
 		try
 		{
 			std::istringstream dataStream(data);
-			json::Object responseObject;
-			json::Reader::Read(responseObject, dataStream);
+			Json::Value responseObject;
+			dataStream >> responseObject;
 
-			json::Array tagsArray = responseObject["Tags"];
+			Json::Value tagsArray = responseObject["Tags"];
 			tags = new std::list<std::string>();
-
-			for (size_t j = 0; j < tagsArray.Size(); j++)
-			{
-				json::String tempTag = tagsArray[j];
-				tags->push_back(tempTag.Value());
-			}
+			for (Json::UInt j = 0; j < tagsArray.size(); j++)
+				tags->push_back(tagsArray[j].asString());
 		}
-		catch (json::Exception &e)
+		catch (std::exception & e)
 		{
 			lastError = std::string("Could not read response: ") + e.what();
 		}
@@ -2018,396 +1956,220 @@ std::list<std::string> * Client::AddTag(int saveID, std::string tag)
 	return tags;
 }
 
-std::vector<std::string> Client::explodePropertyString(std::string property)
-{
-	std::vector<std::string> stringArray;
-	std::string current = "";
-	for (std::string::iterator iter = property.begin(); iter != property.end(); ++iter) {
-		if (*iter == '.') {
-			if (current.length() > 0) {
-				stringArray.push_back(current);
-				current = "";
-			}
-		} else {
-			current += *iter;
-		}
-	}
-	if(current.length() > 0)
-		stringArray.push_back(current);
-	return stringArray;
-}
+// powder.pref preference getting / setting functions
 
-std::string Client::GetPrefString(std::string property, std::string defaultValue)
+// Recursively go down the json to get the setting we want
+Json::Value Client::GetPref(Json::Value root, std::string prop, Json::Value defaultValue)
 {
 	try
 	{
-		json::String value = GetPref(property);
-		return value.Value();
+		int dot = prop.find('.');
+		if (dot == prop.npos)
+			return root.get(prop, defaultValue);
+		else
+			return GetPref(root[prop.substr(0, dot)], prop.substr(dot+1), defaultValue);
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
-
+		return defaultValue;
 	}
-	return defaultValue;
 }
 
-double Client::GetPrefNumber(std::string property, double defaultValue)
+std::string Client::GetPrefString(std::string prop, std::string defaultValue)
 {
 	try
 	{
-		json::Number value = GetPref(property);
-		return value.Value();
+		return GetPref(preferences, prop, defaultValue).asString();
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
-
+		return defaultValue;
 	}
-	return defaultValue;
 }
 
-int Client::GetPrefInteger(std::string property, int defaultValue)
+double Client::GetPrefNumber(std::string prop, double defaultValue)
 {
 	try
 	{
-		std::stringstream defHexInt;
-		defHexInt << std::hex << defaultValue;
-
-		std::string hexString = GetPrefString(property, defHexInt.str());
-		int finalValue = defaultValue;
-
-		std::stringstream hexInt;
-		hexInt << hexString;
-
-		hexInt >> std::hex >> finalValue;
-
-		return finalValue;
+		return GetPref(preferences, prop, defaultValue).asDouble();
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
-
+		return defaultValue;
 	}
-	catch(std::exception & e)
-	{
-
-	}
-	return defaultValue;
 }
 
-unsigned int Client::GetPrefUInteger(std::string property, unsigned int defaultValue)
+int Client::GetPrefInteger(std::string prop, int defaultValue)
 {
 	try
 	{
-		std::stringstream defHexInt;
-		defHexInt << std::hex << defaultValue;
-
-		std::string hexString = GetPrefString(property, defHexInt.str());
-		unsigned int finalValue = defaultValue;
-
-		std::stringstream hexInt;
-		hexInt << hexString;
-
-		hexInt >> std::hex >> finalValue;
-
-		return finalValue;
+		return GetPref(preferences, prop, defaultValue).asInt();
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
-
+		return defaultValue;
 	}
-	catch(std::exception & e)
-	{
-
-	}
-	return defaultValue;
 }
 
-std::vector<std::string> Client::GetPrefStringArray(std::string property)
+unsigned int Client::GetPrefUInteger(std::string prop, unsigned int defaultValue)
 {
 	try
 	{
-		json::Array value = GetPref(property);
-		std::vector<std::string> strArray;
-		for(json::Array::iterator iter = value.Begin(); iter != value.End(); ++iter)
-		{
-			try
-			{
-				json::String cValue = *iter;
-				strArray.push_back(cValue.Value());
-			}
-			catch (json::Exception & e)
-			{
-				
-			}
-		}
-		return strArray;
+		return GetPref(preferences, prop, defaultValue).asUInt();
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
+	{
+		return defaultValue;
+	}
+}
+
+bool Client::GetPrefBool(std::string prop, bool defaultValue)
+{
+	try
+	{
+		return GetPref(preferences, prop, defaultValue).asBool();
+	}
+	catch (std::exception & e)
+	{
+		return defaultValue;
+	}
+}
+
+std::vector<std::string> Client::GetPrefStringArray(std::string prop)
+{
+	try
+	{
+		std::vector<std::string> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < arr.size(); i++)
+			ret.push_back(arr[i].asString());
+		return ret;
+	}
+	catch (std::exception & e)
 	{
 
 	}
 	return std::vector<std::string>();
 }
 
-std::vector<double> Client::GetPrefNumberArray(std::string property)
+std::vector<double> Client::GetPrefNumberArray(std::string prop)
 {
 	try
 	{
-		json::Array value = GetPref(property);
-		std::vector<double> strArray;
-		for(json::Array::iterator iter = value.Begin(); iter != value.End(); ++iter)
-		{
-			try
-			{
-				json::Number cValue = *iter;
-				strArray.push_back(cValue.Value());
-			}
-			catch (json::Exception & e)
-			{
-				
-			}
-		}
-		return strArray;
+		std::vector<double> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < arr.size(); i++)
+			ret.push_back(arr[i].asDouble());
+		return ret;
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
 
 	}
 	return std::vector<double>();
 }
 
-std::vector<int> Client::GetPrefIntegerArray(std::string property)
+std::vector<int> Client::GetPrefIntegerArray(std::string prop)
 {
 	try
 	{
-		json::Array value = GetPref(property);
-		std::vector<int> intArray;
-		for(json::Array::iterator iter = value.Begin(); iter != value.End(); ++iter)
-		{
-			try
-			{
-				json::String cValue = *iter;
-				int finalValue = 0;
-		
-				std::string hexString = cValue.Value();
-				std::stringstream hexInt;
-				hexInt << std::hex << hexString;
-				hexInt >> finalValue;
-
-				intArray.push_back(finalValue);
-			}
-			catch (json::Exception & e)
-			{
-
-			}
-		}
-		return intArray;
+		std::vector<int> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < arr.size(); i++)
+			ret.push_back(arr[i].asInt());
+		return ret;
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
 
 	}
 	return std::vector<int>();
 }
 
-std::vector<unsigned int> Client::GetPrefUIntegerArray(std::string property)
+std::vector<unsigned int> Client::GetPrefUIntegerArray(std::string prop)
 {
 	try
 	{
-		json::Array value = GetPref(property);
-		std::vector<unsigned int> intArray;
-		for(json::Array::iterator iter = value.Begin(); iter != value.End(); ++iter)
-		{
-			try
-			{
-				json::String cValue = *iter;
-				unsigned int finalValue = 0;
-		
-				std::string hexString = cValue.Value();
-				std::stringstream hexInt;
-				hexInt << std::hex << hexString;
-				hexInt >> finalValue;
-
-				intArray.push_back(finalValue);
-			}
-			catch (json::Exception & e)
-			{
-
-			}
-		}
-		return intArray;
+		std::vector<unsigned int> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < arr.size(); i++)
+			ret.push_back(arr[i].asUInt());
+		return ret;
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
 
 	}
 	return std::vector<unsigned int>();
 }
 
-std::vector<bool> Client::GetPrefBoolArray(std::string property)
+std::vector<bool> Client::GetPrefBoolArray(std::string prop)
 {
 	try
 	{
-		json::Array value = GetPref(property);
-		std::vector<bool> strArray;
-		for(json::Array::iterator iter = value.Begin(); iter != value.End(); ++iter)
-		{
-			try
-			{
-				json::Boolean cValue = *iter;
-				strArray.push_back(cValue.Value());
-			}
-			catch (json::Exception & e)
-			{
-				
-			}
-		}
-		return strArray;
+		std::vector<bool> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < arr.size(); i++)
+			ret.push_back(arr[i].asBool());
+		return ret;
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
 
 	}
 	return std::vector<bool>();
 }
 
-bool Client::GetPrefBool(std::string property, bool defaultValue)
+// Helper preference setting function.
+// To actually save any changes to preferences, we need to directly do preferences[property] = thing
+// any other way will set the value of a copy of preferences, not the original
+// This function will recursively go through and create an object with the property we wanted set,
+// and return it to SetPref to do the actual setting
+Json::Value Client::SetPrefHelper(Json::Value root, std::string prop, Json::Value value)
+{
+	int dot = prop.find(".");
+	if (dot == prop.npos)
+		root[prop] = value;
+	else
+	{
+		Json::Value toSet = GetPref(root, prop.substr(0, dot));
+		toSet = SetPrefHelper(toSet, prop.substr(dot+1), value);
+		root[prop.substr(0, dot)] = toSet;
+	}
+	return root;
+}
+
+void Client::SetPref(std::string prop, Json::Value value)
 {
 	try
 	{
-		json::Boolean value = GetPref(property);
-		return value.Value();
+		int dot = prop.find(".");
+		if (dot == prop.npos)
+			preferences[prop] = value;
+		else
+		{
+			preferences[prop.substr(0, dot)] = SetPrefHelper(preferences[prop.substr(0, dot)], prop.substr(dot+1), value);
+		}
 	}
-	catch (json::Exception & e)
+	catch (std::exception & e)
 	{
 
 	}
-	return defaultValue;
 }
 
-void Client::SetPref(std::string property, std::string value)
+void Client::SetPref(std::string prop, std::vector<Json::Value> value)
 {
-	json::UnknownElement stringValue = json::String(value);
-	SetPref(property, stringValue);
-}
-
-void Client::SetPref(std::string property, double value)
-{
-	json::UnknownElement numberValue = json::Number(value);
-	SetPref(property, numberValue);
-}
-
-void Client::SetPref(std::string property, int value)
-{
-	std::stringstream hexInt;
-	hexInt << std::hex << value;
-	json::UnknownElement intValue = json::String(hexInt.str());
-	SetPref(property, intValue);
-}
-
-void Client::SetPref(std::string property, unsigned int value)
-{
-	std::stringstream hexInt;
-	hexInt << std::hex << value;
-	json::UnknownElement intValue = json::String(hexInt.str());
-	SetPref(property, intValue);
-}
-
-void Client::SetPref(std::string property, std::vector<std::string> value)
-{
-	json::Array newArray;
-	for(std::vector<std::string>::iterator iter = value.begin(); iter != value.end(); ++iter)
+	try
 	{
-		newArray.Insert(json::String(*iter));
+		Json::Value arr;
+		for (int i = 0; i < value.size(); i++)
+		{
+			arr.append(value[i]);
+		}
+		SetPref(prop, arr);
 	}
-	json::UnknownElement newArrayValue = newArray;
-	SetPref(property, newArrayValue);
-}
-
-void Client::SetPref(std::string property, std::vector<double> value)
-{
-	json::Array newArray;
-	for(std::vector<double>::iterator iter = value.begin(); iter != value.end(); ++iter)
+	catch (std::exception & e)
 	{
-		newArray.Insert(json::Number(*iter));
+
 	}
-	json::UnknownElement newArrayValue = newArray;
-	SetPref(property, newArrayValue);
-}
-
-void Client::SetPref(std::string property, std::vector<bool> value)
-{
-	json::Array newArray;
-	for(std::vector<bool>::iterator iter = value.begin(); iter != value.end(); ++iter)
-	{
-		newArray.Insert(json::Boolean(*iter));
-	}
-	json::UnknownElement newArrayValue = newArray;
-	SetPref(property, newArrayValue);
-}
-
-void Client::SetPref(std::string property, std::vector<int> value)
-{
-	json::Array newArray;
-	for(std::vector<int>::iterator iter = value.begin(); iter != value.end(); ++iter)
-	{
-		std::stringstream hexInt;
-		hexInt << std::hex << *iter;
-
-		newArray.Insert(json::String(hexInt.str()));
-	}
-	json::UnknownElement newArrayValue = newArray;
-	SetPref(property, newArrayValue);
-}
-
-void Client::SetPref(std::string property, std::vector<unsigned int> value)
-{
-	json::Array newArray;
-	for(std::vector<unsigned int>::iterator iter = value.begin(); iter != value.end(); ++iter)
-	{
-		std::stringstream hexInt;
-		hexInt << std::hex << *iter;
-
-		newArray.Insert(json::String(hexInt.str()));
-	}
-	json::UnknownElement newArrayValue = newArray;
-	SetPref(property, newArrayValue);
-}
-
-void Client::SetPref(std::string property, bool value)
-{
-	json::UnknownElement boolValue = json::Boolean(value);
-	SetPref(property, boolValue);
-}
-
-json::UnknownElement Client::GetPref(std::string property)
-{
-	std::vector<std::string> pTokens = Client::explodePropertyString(property);
-	const json::UnknownElement & configDocumentCopy = configDocument;
-	json::UnknownElement currentRef = configDocumentCopy;
-	for(std::vector<std::string>::iterator iter = pTokens.begin(); iter != pTokens.end(); ++iter)
-	{
-		currentRef = ((const json::UnknownElement &)currentRef)[*iter];
-	}
-	return currentRef;
-}
-
-void Client::setPrefR(std::deque<std::string> tokens, json::UnknownElement & element, json::UnknownElement & value)
-{
-	if(tokens.size())
-	{
-		std::string token = tokens.front();
-		tokens.pop_front();
-		setPrefR(tokens, element[token], value);
-	}
-	else
-		element = value;
-}
-
-void Client::SetPref(std::string property, json::UnknownElement & value)
-{
-	std::vector<std::string> pTokens = Client::explodePropertyString(property);
-	std::deque<std::string> dTokens(pTokens.begin(), pTokens.end());
-	std::string token = dTokens.front();
-	dTokens.pop_front();
-	setPrefR(dTokens, configDocument[token], value);
 }
