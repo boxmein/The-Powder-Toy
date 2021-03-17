@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_FSEP PT_FSEP 71
-Element_FSEP::Element_FSEP()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_FSEP()
 {
 	Identifier = "DEFAULT_PT_FSEP";
 	Name = "FSEP";
@@ -26,7 +28,6 @@ Element_FSEP::Element_FSEP()
 
 	Weight = 70;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 70;
 	Description = "Fuse Powder. Burns slowly like FUSE.";
 
@@ -41,11 +42,12 @@ Element_FSEP::Element_FSEP()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_FSEP::update;
+	DefaultProperties.life = 50;
+
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_FSEP static int update(UPDATE_FUNC_ARGS)
-int Element_FSEP::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	if (parts[i].life<=0) {
@@ -53,11 +55,11 @@ int Element_FSEP::update(UPDATE_FUNC_ARGS)
 		if (r!=-1)
 			parts[r].life = 50;
 		return 1;
-	} 
+	}
 	else if (parts[i].life < 40) {
 		parts[i].life--;
-		if (!(rand()%10)) {
-			r = sim->create_part(-1, x+rand()%3-1, y+rand()%3-1, PT_PLSM);
+		if (RNG::Ref().chance(1, 10)) {
+			r = sim->create_part(-1, x + RNG::Ref().between(-1, 1), y + RNG::Ref().between(-1, 1), PT_PLSM);
 			if (r>-1)
 				parts[r].life = 50;
 		}
@@ -70,14 +72,11 @@ int Element_FSEP::update(UPDATE_FUNC_ARGS)
 					r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					if (((r&0xFF)==PT_SPRK || (parts[i].temp>=(273.15+400.0f))) && parts[i].life>40 && !(rand()%15))
+					if ((TYP(r)==PT_SPRK || (parts[i].temp>=(273.15+400.0f))) && parts[i].life>40 && RNG::Ref().chance(1, 15))
 					{
-						parts[i].life = 39;						
+						parts[i].life = 39;
 					}
 				}
 	}
 	return 0;
 }
-
-
-Element_FSEP::~Element_FSEP() {}

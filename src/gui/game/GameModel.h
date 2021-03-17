@@ -1,27 +1,27 @@
 #ifndef GAMEMODEL_H
 #define GAMEMODEL_H
+#include "Config.h"
 
 #include <vector>
 #include <deque>
-#include "client/SaveInfo.h"
-#include "simulation/Simulation.h"
+
 #include "gui/interface/Colour.h"
-#include "graphics/Renderer.h"
-#include "GameView.h"
-#include "GameController.h"
-#include "Brush.h"
 #include "client/User.h"
-#include "Notification.h"
-#include "QuickOption.h"
-#include "Tool.h"
-#include "Menu.h"
+#include "gui/interface/Point.h"
 
-using namespace std;
-
+class Menu;
+class Tool;
+class QuickOption;
+class Brush;
 class GameView;
+class Notification;
 class GameController;
+class SaveInfo;
+class SaveFile;
 class Simulation;
 class Renderer;
+class Snapshot;
+class GameSave;
 
 class ToolSelection
 {
@@ -35,27 +35,27 @@ public:
 class GameModel
 {
 private:
-	vector<Notification*> notifications;
+	std::vector<Notification*> notifications;
 	//int clipboardSize;
 	//unsigned char * clipboardData;
 	GameSave * clipboard;
 	GameSave * placeSave;
-	deque<string> consoleLog;
-	vector<GameView*> observers;
-	vector<Tool*> toolList;
+	std::deque<String> consoleLog;
+	std::vector<GameView*> observers;
+	std::vector<Tool*> toolList;
 
 	//All tools that are associated with elements
-	vector<Tool*> elementTools;
+	std::vector<Tool*> elementTools;
 	//Tools that are present in elementTools, but don't have an associated menu and need to be freed manually
-	vector<Tool*> extraElementTools;
+	std::vector<Tool*> extraElementTools;
 
 	Simulation * sim;
 	Renderer * ren;
-	vector<Menu*> menuList;
-	vector<QuickOption*> quickOptions;
+	std::vector<Menu*> menuList;
+	std::vector<QuickOption*> quickOptions;
 	int activeMenu;
 	int currentBrush;
-	vector<Brush *> brushList;
+	std::vector<Brush *> brushList;
 	SaveInfo * currentSave;
 	SaveFile * currentFile;
 	Tool * lastTool;
@@ -65,6 +65,12 @@ private:
 	User currentUser;
 	float toolStrength;
 	std::deque<Snapshot*> history;
+	Snapshot *redoHistory;
+	unsigned int historyPosition;
+	unsigned int undoHistoryLimit;
+	bool mouseClickRequired;
+	bool includePressure;
+	bool perfectCircle = true;
 
 	size_t activeColourPreset;
 	std::vector<ui::Colour> colourPresets;
@@ -72,9 +78,10 @@ private:
 	ui::Colour colour;
 
 	int edgeMode;
+	int decoSpace;
 
-	std::string infoTip;
-	std::string toolTip;
+	String infoTip;
+	String toolTip;
 	//bool zoomEnabled;
 	void notifyRendererChanged();
 	void notifySimulationChanged();
@@ -94,7 +101,7 @@ private:
 	void notifyColourPresetsChanged();
 	void notifyColourActivePresetChanged();
 	void notifyNotificationsChanged();
-	void notifyLogChanged(string entry);
+	void notifyLogChanged(String entry);
 	void notifyInfoTipChanged();
 	void notifyToolTipChanged();
 	void notifyQuickOptionsChanged();
@@ -105,6 +112,8 @@ public:
 
 	void SetEdgeMode(int edgeMode);
 	int GetEdgeMode();
+	void SetDecoSpace(int decoSpace);
+	int GetDecoSpace();
 
 	void SetActiveColourPreset(size_t preset);
 	size_t GetActiveColourPreset();
@@ -119,16 +128,24 @@ public:
 	void SetColourSelectorColour(ui::Colour colour);
 	ui::Colour GetColourSelectorColour();
 
-	void SetToolTip(std::string text);
-	void SetInfoTip(std::string text);
-	std::string GetToolTip();
-	std::string GetInfoTip();
+	void SetToolTip(String text);
+	void SetInfoTip(String text);
+	String GetToolTip();
+	String GetInfoTip();
 
 	void BuildMenus();
+	void BuildFavoritesMenu();
+	void BuildBrushList();
 	void BuildQuickOptionMenu(GameController * controller);
 
 	std::deque<Snapshot*> GetHistory();
+	unsigned int GetHistoryPosition();
 	void SetHistory(std::deque<Snapshot*> newHistory);
+	void SetHistoryPosition(unsigned int newHistoryPosition);
+	Snapshot * GetRedoHistory();
+	void SetRedoHistory(Snapshot * redo);
+	unsigned int GetUndoHistoryLimit();
+	void SetUndoHistoryLimit(unsigned int undoHistoryLimit_);
 
 	void UpdateQuickOptions();
 
@@ -138,34 +155,37 @@ public:
 	float GetToolStrength();
 	Tool * GetLastTool();
 	void SetLastTool(Tool * newTool);
-	Tool * GetToolFromIdentifier(std::string identifier);
+	Tool *GetToolFromIdentifier(ByteString const &identifier);
 	Tool * GetElementTool(int elementID);
-	vector<Tool*> GetToolList();
-	vector<Tool*> GetUnlistedTools();
+	std::vector<Tool*> GetToolList();
+	std::vector<Tool*> GetUnlistedTools();
 
 	Brush * GetBrush();
-	vector<Brush*> GetBrushList();
+	std::vector<Brush*> GetBrushList();
 	int GetBrushID();
 	void SetBrushID(int i);
 
 	void SetVote(int direction);
 	SaveInfo * GetSave();
 	SaveFile * GetSaveFile();
-	void SetSave(SaveInfo * newSave);
-	void SetSaveFile(SaveFile * newSave);
+	void SetSave(SaveInfo * newSave, bool invertIncludePressure);
+	void SetSaveFile(SaveFile * newSave, bool invertIncludePressure);
 	void AddObserver(GameView * observer);
 
-	bool GetPaused();
 	void SetPaused(bool pauseState);
-	bool GetDecoration();
+	bool GetPaused();
 	void SetDecoration(bool decorationState);
-	bool GetAHeatEnable();
+	bool GetDecoration();
 	void SetAHeatEnable(bool aHeat);
-	bool GetGravityGrid();
+	bool GetAHeatEnable();
+	void ResetAHeat();
+	void SetNewtonianGravity(bool newtonainGravity);
+	bool GetNewtonianGrvity();
 	void ShowGravityGrid(bool showGrid);
+	bool GetGravityGrid();
 	void ClearSimulation();
-	vector<Menu*> GetMenuList();
-	vector<QuickOption*> GetQuickOptions();
+	std::vector<Menu*> GetMenuList();
+	std::vector<QuickOption*> GetQuickOptions();
 	void SetActiveMenu(int menuID);
 	int GetActiveMenu();
 	void FrameStep(int frames);
@@ -187,14 +207,24 @@ public:
 	ui::Point GetZoomWindowPosition();
 	void SetClipboard(GameSave * save);
 	void SetPlaceSave(GameSave * save);
-	void Log(string message, bool printToFile);
-	deque<string> GetLog();
+	void Log(String message, bool printToFile);
+	std::deque<String> GetLog();
 	GameSave * GetClipboard();
 	GameSave * GetPlaceSave();
+	bool GetMouseClickRequired();
+	void SetMouseClickRequired(bool mouseClickRequired);
+	bool GetIncludePressure();
+	void SetIncludePressure(bool includePressure);
+	void SetPerfectCircle(bool perfectCircle);
 
 	std::vector<Notification*> GetNotifications();
 	void AddNotification(Notification * notification);
 	void RemoveNotification(Notification * notification);
+
+	void RemoveCustomGOLType(const ByteString &identifier);
+
+	ByteString SelectNextIdentifier;
+	int SelectNextTool;
 };
 
 #endif // GAMEMODEL_H

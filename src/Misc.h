@@ -1,26 +1,9 @@
 #ifndef UTILS_H
 #define UTILS_H
-#include <stdio.h>
-#include <stdlib.h>
-#include <string>
-#include <sstream>
+#include "Config.h"
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
-
-#if defined(WIN) && !defined(__GNUC__)
-#define x86_cpuid(func,af,bf,cf,df) \
-	do {\
-	__asm mov	eax, func\
-	__asm cpuid\
-	__asm mov	af, eax\
-	__asm mov	bf, ebx\
-	__asm mov	cf, ecx\
-	__asm mov	df, edx\
-	} while(0)
-#else
-#define x86_cpuid(func,af,bf,cf,df) \
-__asm__ __volatile ("cpuid":\
-	"=a" (af), "=b" (bf), "=c" (cf), "=d" (df) : "a" (func));
-#endif
 
 //Linear interpolation
 template <typename T> inline T LinearInterpolate(T val1, T val2, T lowerCoord, T upperCoord, T coord)
@@ -29,34 +12,47 @@ template <typename T> inline T LinearInterpolate(T val1, T val2, T lowerCoord, T
 	return (((val2 - val1) / (upperCoord - lowerCoord)) * (coord - lowerCoord)) + val1;
 }
 
+
 //Signum function
-int isign(float i);
-
-unsigned clamp_flt(float f, float min, float max);
-
-float restrict_flt(float f, float min, float max);
-
-char *mystrdup(const char *s);
-
-struct strlist
+inline int isign(int i)
 {
-	char *str;
-	struct strlist *next;
-};
+	if (i<0)
+		return -1;
+	if (i>0)
+		return 1;
+	return 0;
+}
 
-void strlist_add(struct strlist **list, char *str);
+inline int isign(float i)
+{
+	if (i<0)
+		return -1;
+	if (i>0)
+		return 1;
+	return 0;
+}
 
-int strlist_find(struct strlist **list, char *str);
+inline unsigned clamp_flt(float f, float min, float max)
+{
+	if (f<min)
+		return 0;
+	if (f>max)
+		return 255;
+	return (int)(255.0f*(f-min)/(max-min));
+}
 
-void strlist_free(struct strlist **list);
+inline float restrict_flt(float f, float min, float max)
+{
+	if (f<min)
+		return min;
+	if (f>max)
+		return max;
+	return f;
+}
 
 void save_presets(int do_update);
 
 void load_presets(void);
-
-void save_string(FILE *f, char *str);
-
-int load_string(FILE *f, char *str, int max);
 
 void strcaturl(char *dst, const char *src);
 

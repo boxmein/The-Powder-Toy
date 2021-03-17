@@ -1,6 +1,10 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_CRAY PT_CRAY 167
-Element_CRAY::Element_CRAY()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static bool ctypeDraw(CTYPEDRAW_FUNC_ARGS);
+static unsigned int wavelengthToDecoColour(int wavelength);
+
+void Element::Element_CRAY()
 {
 	Identifier = "DEFAULT_PT_CRAY";
 	Name = "CRAY";
@@ -26,11 +30,10 @@ Element_CRAY::Element_CRAY()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f +273.15f;
 	HeatConduct = 0;
 	Description = "Particle Ray Emitter. Creates a beam of particles set by its ctype, with a range set by tmp.";
 
-	Properties = TYPE_SOLID|PROP_LIFE_DEC;
+	Properties = TYPE_SOLID;
 
 	LowPressure = IPL;
 	LowPressureTransition = NT;
@@ -41,15 +44,15 @@ Element_CRAY::Element_CRAY()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_CRAY::update;
+	Update = &update;
+	CtypeDraw = &ctypeDraw;
 }
 
-//#TPT-Directive ElementHeader Element_CRAY static int update(UPDATE_FUNC_ARGS)
-int Element_CRAY::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int nxx, nyy, docontinue, nxi, nyi;
 	// set ctype to things that touch it if it doesn't have one already
-	if (parts[i].ctype<=0 || !sim->elements[parts[i].ctype&0xFF].Enabled)
+	if (parts[i].ctype<=0 || !sim->elements[TYP(parts[i].ctype)].Enabled)
 	{
 		for (int rx = -1; rx <= 1; rx++)
 			for (int ry = -1; ry <= 1; ry++)
@@ -60,15 +63,14 @@ int Element_CRAY::update(UPDATE_FUNC_ARGS)
 						r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					if ((r&0xFF)!=PT_CRAY && (r&0xFF)!=PT_PSCN && (r&0xFF)!=PT_INST && (r&0xFF)!=PT_METL && (r&0xFF)!=PT_SPRK && (r&0xFF)<PT_NUM)
+					if (TYP(r)!=PT_CRAY && TYP(r)!=PT_PSCN && TYP(r)!=PT_INST && TYP(r)!=PT_METL && TYP(r)!=PT_SPRK && TYP(r)<PT_NUM)
 					{
-						parts[i].ctype = r&0xFF;
-						parts[i].temp = parts[r>>8].temp;
+						parts[i].ctype = TYP(r);
+						parts[i].temp = parts[ID(r)].temp;
 					}
 				}
 	}
-	// only fire when life is 0, but nothing sets the life right now
-	else if (parts[i].life==0)
+	else
 	{
 		for (int rx =-1; rx <= 1; rx++)
 			for (int ry = -1; ry <= 1; ry++)
@@ -77,11 +79,11 @@ int Element_CRAY::update(UPDATE_FUNC_ARGS)
 					int r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					if ((r&0xFF)==PT_SPRK && parts[r>>8].life==3) { //spark found, start creating
+					if (TYP(r)==PT_SPRK && parts[ID(r)].life==3) { //spark found, start creating
 						unsigned int colored = 0;
-						bool destroy = parts[r>>8].ctype==PT_PSCN;
-						bool nostop = parts[r>>8].ctype==PT_INST;
-						bool createSpark = (parts[r>>8].ctype==PT_INWR);
+						bool destroy = parts[ID(r)].ctype==PT_PSCN;
+						bool nostop = parts[ID(r)].ctype==PT_INST;
+						bool createSpark = (parts[ID(r)].ctype==PT_INWR);
 						int partsRemaining = 255;
 						if (parts[i].tmp) //how far it shoots
 							partsRemaining = parts[i].tmp;
@@ -92,29 +94,32 @@ int Element_CRAY::update(UPDATE_FUNC_ARGS)
 								break;
 							}
 							r = pmap[y+nyi+nyy][x+nxi+nxx];
-							if (!sim->IsWallBlocking(x+nxi+nxx, y+nyi+nyy, parts[i].ctype) && (!sim->pmap[y+nyi+nyy][x+nxi+nxx] || createSpark)) { // create, also set color if it has passed through FILT
-								int nr = sim->create_part(-1, x+nxi+nxx, y+nyi+nyy, parts[i].ctype&0xFF, parts[i].ctype>>8);
+							if (!sim->IsWallBlocking(x+nxi+nxx, y+nyi+nyy, TYP(parts[i].ctype)) && (!sim->pmap[y+nyi+nyy][x+nxi+nxx] || createSpark)) { // create, also set color if it has passed through FILT
+								int nr = sim->create_part(-1, x+nxi+nxx, y+nyi+nyy, TYP(parts[i].ctype), ID(parts[i].ctype));
 								if (nr!=-1) {
 									if (colored)
 										parts[nr].dcolour = colored;
 									parts[nr].temp = parts[i].temp;
+									if (parts[i].life>0)
+										parts[nr].life = parts[i].life;
 									if(!--partsRemaining)
 										docontinue = 0;
 								}
-							} else if ((r&0xFF)==PT_FILT) { // get color if passed through FILT
-								if (parts[r>>8].dcolour == 0xFF000000)
+							} else if (TYP(r)==PT_FILT) { // get color if passed through FILT
+								if (parts[ID(r)].dcolour == 0xFF000000)
 									colored = 0xFF000000;
-								else if (parts[r>>8].tmp==0)
+								else if (parts[ID(r)].tmp==0)
 								{
-									colored = wavelengthToDecoColour(Element_FILT::getWavelengths(&parts[r>>8]));
+									int Element_FILT_getWavelengths(Particle* cpart);
+									colored = wavelengthToDecoColour(Element_FILT_getWavelengths(&parts[ID(r)]));
 								}
 								else if (colored==0xFF000000)
 									colored = 0;
-								parts[r>>8].life = 4;
-							} else if ((r&0xFF) == PT_CRAY || nostop) {
+								parts[ID(r)].life = 4;
+							} else if (TYP(r) == PT_CRAY || nostop) {
 								docontinue = 1;
-							} else if(destroy && r && ((r&0xFF) != PT_DMND)) {
-								sim->kill_part(r>>8);
+							} else if(destroy && r && (TYP(r) != PT_DMND)) {
+								sim->kill_part(ID(r));
 								if(!--partsRemaining)
 									docontinue = 0;
 							}
@@ -128,8 +133,8 @@ int Element_CRAY::update(UPDATE_FUNC_ARGS)
 	}
 	return 0;
 }
-//#TPT-Directive ElementHeader Element_CRAY static unsigned int wavelengthToDecoColour(int wavelength)
-unsigned int Element_CRAY::wavelengthToDecoColour(int wavelength)
+
+static unsigned int wavelengthToDecoColour(int wavelength)
 {
 	int colr = 0, colg = 0, colb = 0, x;
 	for (x=0; x<12; x++) {
@@ -153,5 +158,16 @@ unsigned int Element_CRAY::wavelengthToDecoColour(int wavelength)
 	return (255<<24) | (colr<<16) | (colg<<8) | colb;
 }
 
-
-Element_CRAY::~Element_CRAY() {}
+static bool ctypeDraw(CTYPEDRAW_FUNC_ARGS)
+{
+	if (!Element::ctypeDrawVInCtype(CTYPEDRAW_FUNC_SUBCALL_ARGS))
+	{
+		return false;
+	}
+	if (t == PT_LIGH)
+	{
+		sim->parts[i].ctype |= PMAPID(30);
+	}
+	sim->parts[i].temp = sim->elements[t].DefaultProperties.temp;
+	return true;
+}

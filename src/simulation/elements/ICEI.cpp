@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_ICEI PT_ICEI 13
-Element_ICEI::Element_ICEI()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_ICEI()
 {
 	Identifier = "DEFAULT_PT_ICEI";
 	Name = "ICE";
@@ -26,7 +28,7 @@ Element_ICEI::Element_ICEI()
 
 	Weight = 100;
 
-	Temperature = R_TEMP-50.0f+273.15f;
+	DefaultProperties.temp = R_TEMP - 50.0f + 273.15f;
 	HeatConduct = 46;
 	Description = "Crushes under pressure. Cools down air.";
 
@@ -41,12 +43,13 @@ Element_ICEI::Element_ICEI()
 	HighTemperature = 252.05f;
 	HighTemperatureTransition = ST;
 
-	Update = &Element_ICEI::update;
+	DefaultProperties.ctype = PT_WATR;
+
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_ICEI static int update(UPDATE_FUNC_ARGS)
-int Element_ICEI::update(UPDATE_FUNC_ARGS)
- { //currently used for snow as well
+static int update(UPDATE_FUNC_ARGS)
+{
 	int r, rx, ry;
 	if (parts[i].ctype==PT_FRZW)//get colder if it is from FRZW
 	{
@@ -59,23 +62,20 @@ int Element_ICEI::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)==PT_SALT || (r&0xFF)==PT_SLTW)
+				if (TYP(r)==PT_SALT || TYP(r)==PT_SLTW)
 				{
-					if (parts[i].temp > sim->elements[PT_SLTW].LowTemperature && !(rand()%200))
+					if (parts[i].temp > sim->elements[PT_SLTW].LowTemperature && RNG::Ref().chance(1, 200))
 					{
 						sim->part_change_type(i,x,y,PT_SLTW);
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_SLTW);
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_SLTW);
 						return 0;
 					}
 				}
-				else if (((r&0xFF)==PT_FRZZ) && !(rand()%200))
+				else if ((TYP(r)==PT_FRZZ) && RNG::Ref().chance(1, 200))
 				{
-					sim->part_change_type(r>>8,x+rx,y+ry,PT_ICEI);
-					parts[r>>8].ctype = PT_FRZW;
+					sim->part_change_type(ID(r),x+rx,y+ry,PT_ICEI);
+					parts[ID(r)].ctype = PT_FRZW;
 				}
 			}
 	return 0;
 }
-
-
-Element_ICEI::~Element_ICEI() {}

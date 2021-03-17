@@ -1,4 +1,5 @@
 #pragma once
+#include "Config.h"
 
 #include "gui/interface/Window.h"
 
@@ -19,24 +20,18 @@ public:
 	{
 		Show();
 	}
-	virtual void Exit()
+	void Exit() override
 	{
 		Hide();
 		SelfDestruct();
 	}
-	virtual void Show()
+	void Show() override
 	{
-		if(ui::Engine::Ref().GetWindow() != this)
-		{
-			ui::Engine::Ref().ShowWindow(this);
-		}
+		MakeActiveWindow();
 	}
-	virtual void Hide()
+	void Hide() override
 	{
-		if(ui::Engine::Ref().GetWindow() == this)
-		{
-			ui::Engine::Ref().CloseWindow();
-		}
+		CloseActiveWindow();
 	}
 	virtual ~WindowActivity() {}
 };

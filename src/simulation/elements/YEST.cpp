@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_YEST PT_YEST 63
-Element_YEST::Element_YEST()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_YEST()
 {
 	Identifier = "DEFAULT_PT_YEST";
 	Name = "YEST";
@@ -26,7 +28,6 @@ Element_YEST::Element_YEST()
 
 	Weight = 80;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 70;
 	Description = "Yeast, grows when warm (~37C).";
 
@@ -41,11 +42,10 @@ Element_YEST::Element_YEST()
 	HighTemperature = 373.0f;
 	HighTemperatureTransition = PT_DYST;
 
-	Update = &Element_YEST::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_YEST static int update(UPDATE_FUNC_ARGS)
-int Element_YEST::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	for (rx=-1; rx<2; rx++)
@@ -55,16 +55,13 @@ int Element_YEST::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)==PT_DYST && !(rand()%6) && !sim->legacy_enable)
+				if (TYP(r)==PT_DYST && RNG::Ref().chance(1, 6) && !sim->legacy_enable)
 				{
 					sim->part_change_type(i,x,y,PT_DYST);
 				}
 			}
-	if (parts[i].temp>303&&parts[i].temp<317) {
-		sim->create_part(-1, x+rand()%3-1, y+rand()%3-1, PT_YEST);
+	if (parts[i].temp > 303 && parts[i].temp < 317) {
+		sim->create_part(-1, x + RNG::Ref().between(-1, 1), y + RNG::Ref().between(-1, 1), PT_YEST);
 	}
 	return 0;
 }
-
-
-Element_YEST::~Element_YEST() {}

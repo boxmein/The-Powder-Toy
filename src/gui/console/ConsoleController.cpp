@@ -1,7 +1,13 @@
-#include <stack>
 #include "ConsoleController.h"
 
-ConsoleController::ConsoleController(ControllerCallback * callback, CommandInterface * commandInterface):
+#include "Controller.h"
+#include "ConsoleView.h"
+#include "ConsoleModel.h"
+#include "ConsoleCommand.h"
+
+#include "lua/CommandInterface.h"
+
+ConsoleController::ConsoleController(std::function<void ()> onDone_, CommandInterface * commandInterface):
 	HasDone(false)
 {
 	consoleModel = new ConsoleModel();
@@ -9,15 +15,15 @@ ConsoleController::ConsoleController(ControllerCallback * callback, CommandInter
 	consoleView->AttachController(this);
 	consoleModel->AddObserver(consoleView);
 
-	this->callback = callback;
+	onDone = onDone_;
 	this->commandInterface = commandInterface;
 }
 
-void ConsoleController::EvaluateCommand(std::string command)
+void ConsoleController::EvaluateCommand(String command)
 {
 	if(command.length())
 	{
-		if (command.substr(0, 6) == "!load ")
+		if (command.BeginsWith("!load "))
 			CloseConsole();
 		int returnCode = commandInterface->Command(command);
 		consoleModel->AddLastCommand(ConsoleCommand(command, returnCode, commandInterface->GetLastError()));
@@ -28,11 +34,10 @@ void ConsoleController::EvaluateCommand(std::string command)
 
 void ConsoleController::CloseConsole()
 {
-	if(ui::Engine::Ref().GetWindow() == consoleView)
-		ui::Engine::Ref().CloseWindow();
+	consoleView->CloseActiveWindow();
 }
 
-std::string ConsoleController::FormatCommand(std::string command)
+String ConsoleController::FormatCommand(String command)
 {
 	return commandInterface->FormatCommand(command);
 }
@@ -53,10 +58,9 @@ void ConsoleController::PreviousCommand()
 
 void ConsoleController::Exit()
 {
-	if(ui::Engine::Ref().GetWindow() == consoleView)
-		ui::Engine::Ref().CloseWindow();
-	if(callback)
-		callback->ControllerExit();
+	consoleView->CloseActiveWindow();
+	if (onDone)
+		onDone();
 	HasDone = true;
 }
 
@@ -65,10 +69,9 @@ ConsoleView * ConsoleController::GetView()
 	return consoleView;
 }
 
-ConsoleController::~ConsoleController() {
-	if(ui::Engine::Ref().GetWindow() == consoleView)
-		ui::Engine::Ref().CloseWindow();
-	delete callback;
+ConsoleController::~ConsoleController()
+{
+	consoleView->CloseActiveWindow();
 	delete consoleModel;
 	delete consoleView;
 }

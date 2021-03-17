@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_IRON PT_IRON 76
-Element_IRON::Element_IRON()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_IRON()
 {
 	Identifier = "DEFAULT_PT_IRON";
 	Name = "IRON";
@@ -26,7 +28,6 @@ Element_IRON::Element_IRON()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f +273.15f;
 	HeatConduct = 251;
 	Description = "Rusts with salt, can be used for electrolysis of WATR.";
 
@@ -41,11 +42,10 @@ Element_IRON::Element_IRON()
 	HighTemperature = 1687.0f;
 	HighTemperatureTransition = PT_LAVA;
 
-	Update = &Element_IRON::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_IRON static int update(UPDATE_FUNC_ARGS)
-int Element_IRON::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	if (parts[i].life)
@@ -55,22 +55,22 @@ int Element_IRON::update(UPDATE_FUNC_ARGS)
 			if (BOUNDS_CHECK && (rx || ry))
 			{
 				r = pmap[y+ry][x+rx];
-				switch (r&0xFF)
+				switch TYP(r)
 				{
 				case PT_SALT:
-					if (!(rand()%47))
+					if (RNG::Ref().chance(1, 47))
 						goto succ;
 					break;
 				case PT_SLTW:
-					if (!(rand()%67))
+					if (RNG::Ref().chance(1, 67))
 						goto succ;
 					break;
 				case PT_WATR:
-					if (!(rand()%1200))
+					if (RNG::Ref().chance(1, 1200))
 						goto succ;
 					break;
 				case PT_O2:
-					if (!(rand()%250))
+					if (RNG::Ref().chance(1, 250))
 						goto succ;
 					break;
 				case PT_LO2:
@@ -82,9 +82,6 @@ int Element_IRON::update(UPDATE_FUNC_ARGS)
 	return 0;
 succ:
 	sim->part_change_type(i,x,y,PT_BMTL);
-	parts[i].tmp=(rand()%10)+20;				
+	parts[i].tmp = RNG::Ref().between(20, 29);
 	return 0;
 }
-
-
-Element_IRON::~Element_IRON() {}

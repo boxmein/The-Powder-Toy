@@ -1,6 +1,8 @@
 #pragma once
+#include "Config.h"
 
-#include <string>
+#include "common/String.h"
+
 #include <vector>
 
 class GameModel;
@@ -23,9 +25,9 @@ protected:
 	std::vector<QuickOptionListener*> listeners;
 	GameModel * m;
 	Type type;
-	std::string icon;
-	std::string description;
-	QuickOption(std::string icon, std::string description, GameModel * m, Type type) :
+	String icon;
+	String description;
+	QuickOption(String icon, String description, GameModel * m, Type type) :
 		m(m),
 		type(type),
 		icon(icon),
@@ -57,10 +59,10 @@ public:
 	virtual int GetMutli() { return 0;}
 	virtual int GetMultiCount() { return 0;}
 
-	std::string GetIcon() { return icon; }
-	void SetIcon(std::string icon) { this->icon = icon; }
-	std::string GetDescription() { return description; }
-	void SetDescription(std::string description) { this->description = description; }
+	String GetIcon() { return icon; }
+	void SetIcon(String icon) { this->icon = icon; }
+	String GetDescription() { return description; }
+	void SetDescription(String description) { this->description = description; }
 	void Perform()
 	{
 		perform();

@@ -18,6 +18,10 @@ Saves/*
 scripts/*
 generated/*
 includes/*
+recordings/
+font/*
+Debug/*
+Release/*
 generate
 Makefile.me
 *.xcodeproj
@@ -45,6 +49,7 @@ Makefile.me
 *.lastbuildstate
 *.unsuccessfulbuild
 *.pdb
+*.db
 *.sublime-*
 *.project
 *.cproject
@@ -53,6 +58,8 @@ Makefile.me
 *.layout
 *.config
 *.creator*
+*.cflags
+*.cxxflags
 *.files
 *.includes
 config.log
@@ -62,6 +69,7 @@ config.log
 *.pyc
 site_scons/site_tools/mfprogram/*.pyc
 site_scons/site_tools/gch/*.pyc
-others*
+.vscode/
+.vs/
 
 screenshot_*

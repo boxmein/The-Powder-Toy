@@ -1,44 +1,57 @@
+#include "Platform.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <cassert>
 #ifdef WIN
+#define NOMINMAX
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <windows.h>
 #else
 #include <unistd.h>
-#include <time.h>
+#include <ctime>
 #include <sys/time.h>
 #endif
 #ifdef MACOSX
 #include <mach-o/dyld.h>
 #endif
-#include "Platform.h"
+
 #include "Misc.h"
+#include "client/Client.h"
 
 namespace Platform
 {
 
-char *ExecutableName(void)
+ByteString ExecutableName()
 {
+	ByteString ret;
 #if defined(WIN)
-	char *name = (char *)malloc(64);
+	using Char = wchar_t;
+#else
+	using Char = char;
+#endif
+#if defined(WIN)
+	wchar_t *name = (wchar_t *)malloc(sizeof(wchar_t) * 64);
 	DWORD max = 64, res;
-	while ((res = GetModuleFileName(NULL, name, max)) >= max)
+	while ((res = GetModuleFileNameW(NULL, name, max)) >= max)
 	{
 #elif defined MACOSX
 	char *fn = (char*)malloc(64),*name = (char*)malloc(PATH_MAX);
 	uint32_t max = 64, res;
 	if (_NSGetExecutablePath(fn, &max) != 0)
 	{
-		fn = (char*)realloc(fn, max);
+		char *realloced_fn = (char*)realloc(fn, max);
+		assert(realloced_fn != NULL);
+		fn = realloced_fn;
 		_NSGetExecutablePath(fn, &max);
 	}
 	if (realpath(fn, name) == NULL)
 	{
 		free(fn);
 		free(name);
-		return NULL;
+		return "";
 	}
 	res = 1;
 #else
@@ -51,49 +64,76 @@ char *ExecutableName(void)
 #endif
 #ifndef MACOSX
 		max *= 2;
-		name = (char *)realloc(name, max);
-		memset(name, 0, max);
+		Char* realloced_name = (Char *)realloc(name, sizeof(Char) * max);
+		assert(realloced_name != NULL);
+		name = realloced_name;
+		memset(name, 0, sizeof(Char) * max);
 	}
 #endif
 	if (res <= 0)
 	{
 		free(name);
-		return NULL;
+		return "";
 	}
-	return name;
+#if defined(WIN)
+	ret = WinNarrow(name);
+#else
+	ret = name;
+#endif
+	free(name);
+	return ret;
 }
 
 void DoRestart()
 {
-	char *exename = ExecutableName();
-	if (exename)
+	ByteString exename = ExecutableName();
+	if (exename.length())
 	{
 #ifdef WIN
-		ShellExecute(NULL, "open", exename, NULL, NULL, SW_SHOWNORMAL);
-#elif defined(LIN) || defined(MACOSX)
-		execl(exename, "powder", NULL);
+		int ret = int(INT_PTR(ShellExecuteW(NULL, NULL, WinWiden(exename).c_str(), NULL, NULL, SW_SHOWNORMAL)));
+		if (ret <= 32)
+		{
+			fprintf(stderr, "cannot restart: ShellExecute(...) failed: code %i\n", ret);
+		}
+		else
+		{
+#if !defined(RENDERER) && !defined(FONTEDITOR)
+			Client::Ref().Shutdown(); // very ugly hack; will fix soon(tm)
 #endif
-		free(exename);
+			exit(0);
+		}
+#elif defined(LIN) || defined(MACOSX)
+		execl(exename.c_str(), "powder", NULL);
+		int ret = errno;
+		fprintf(stderr, "cannot restart: execl(...) failed: code %i\n", ret);
+#endif
+	}
+	else
+	{
+		fprintf(stderr, "cannot restart: no executable name???\n");
 	}
 	exit(-1);
 }
 
-void OpenURI(std::string uri)
+void OpenURI(ByteString uri)
 {
 #if defined(WIN)
-	ShellExecute(0, "OPEN", uri.c_str(), NULL, NULL, 0);
+	if (int(INT_PTR(ShellExecuteW(NULL, NULL, WinWiden(uri).c_str(), NULL, NULL, SW_SHOWNORMAL))) <= 32)
+	{
+		fprintf(stderr, "cannot open URI: ShellExecute(...) failed\n");
+	}
 #elif defined(MACOSX)
-	char *cmd = (char*)malloc(7+uri.length());
-	strcpy(cmd, "open ");
-	strappend(cmd, (char*)uri.c_str());
-	system(cmd);
+	if (system(("open \"" + uri + "\"").c_str()))
+	{
+		fprintf(stderr, "cannot open URI: system(...) failed\n");
+	}
 #elif defined(LIN)
-	char *cmd = (char*)malloc(11+uri.length());
-	strcpy(cmd, "xdg-open ");
-	strappend(cmd, (char*)uri.c_str());
-	system(cmd);
+	if (system(("xdg-open \"" + uri + "\"").c_str()))
+	{
+		fprintf(stderr, "cannot open URI: system(...) failed\n");
+	}
 #else
-	printf("Cannot open browser\n");
+	fprintf(stderr, "cannot open URI: not implemented\n");
 #endif
 }
 
@@ -123,5 +163,49 @@ long unsigned int GetTime()
 	return s.tv_sec * 1000 + s.tv_nsec / 1000000;
 #endif
 }
+
+
+void LoadFileInResource(int name, int type, unsigned int& size, const char*& data)
+{
+#ifdef _MSC_VER
+	HMODULE handle = ::GetModuleHandle(NULL);
+	HRSRC rc = ::FindResource(handle, MAKEINTRESOURCE(name), MAKEINTRESOURCE(type));
+	HGLOBAL rcData = ::LoadResource(handle, rc);
+	size = ::SizeofResource(handle, rc);
+	data = static_cast<const char*>(::LockResource(rcData));
+#endif
+}
+
+#ifdef WIN
+ByteString WinNarrow(const std::wstring &source)
+{
+	int buffer_size = WideCharToMultiByte(CP_UTF8, 0, source.c_str(), source.size(), nullptr, 0, NULL, NULL);
+	if (!buffer_size)
+	{
+		return "";
+	}
+	std::string output(buffer_size, 0);
+	if (!WideCharToMultiByte(CP_UTF8, 0, source.c_str(), source.size(), &output[0], buffer_size, NULL, NULL))
+	{
+		return "";
+	}
+	return output;
+}
+
+std::wstring WinWiden(const ByteString &source)
+{
+	int buffer_size = MultiByteToWideChar(CP_UTF8, 0, source.c_str(), source.size(), nullptr, 0);
+	if (!buffer_size)
+	{
+		return L"";
+	}
+	std::wstring output(buffer_size, 0);
+	if (!MultiByteToWideChar(CP_UTF8, 0, source.c_str(), source.size(), &output[0], buffer_size))
+	{
+		return L"";
+	}
+	return output;
+}
+#endif
 
 }

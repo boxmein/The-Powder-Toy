@@ -1,19 +1,22 @@
 #ifndef SIMULATION_H
 #define SIMULATION_H
+#include "Config.h"
+
 #include <cstring>
 #include <cstddef>
 #include <vector>
+#include <array>
 
-#include "Config.h"
-#include "Elements.h"
-#include "SimulationData.h"
-#include "Sign.h"
 #include "Particle.h"
 #include "Stickman.h"
 #include "WallType.h"
-#include "GOLMenu.h"
+#include "Sign.h"
+#include "ElementDefs.h"
+#include "BuiltinGOL.h"
 #include "MenuSection.h"
-#include "elements/Element.h"
+#include "CoordStack.h"
+
+#include "Element.h"
 
 #define CHANNELS ((int)(MAX_TEMP-73)/100+2)
 
@@ -38,15 +41,12 @@ public:
 	Air * air;
 
 	std::vector<sign> signs;
-	Element elements[PT_NUM];
+	std::array<Element, PT_NUM> elements;
 	//Element * elements;
-	std::vector<SimTool*> tools;
-	unsigned int * platent;
-	wall_type wtypes[UI_WALLCOUNT];
-	gol_menu gmenu[NGOL];
-	int goltype[NGOL];
-	int grule[NGOL+1][10];
-	menu_section msections[SC_TOTAL];
+	std::vector<SimTool> tools;
+	std::vector<unsigned int> platent;
+	std::vector<wall_type> wtypes;
+	std::vector<menu_section> msections;
 
 	int currentTick;
 	int replaceModeSelected;
@@ -60,7 +60,7 @@ public:
 	bool elementRecount;
 	int elementCount[PT_NUM];
 	int ISWIRE;
-	int force_stacking_check;
+	bool force_stacking_check;
 	int emp_decor;
 	int emp_trigger_count;
 	bool etrd_count_valid;
@@ -80,8 +80,7 @@ public:
 	//Gol sim
 	int CGOL;
 	int GSPEED;
-	unsigned char gol[YRES][XRES];
-	unsigned short gol2[YRES][XRES][9];
+	unsigned int gol[YRES][XRES][5];
 	//Air sim
 	float (*vx)[XRES/CELL];
 	float (*vy)[XRES/CELL];
@@ -101,7 +100,7 @@ public:
 	Particle parts[NPART];
 	int pmap[YRES][XRES];
 	int photons[YRES][XRES];
-	int pmap_count[YRES][XRES];
+	unsigned int pmap_count[YRES][XRES];
 	//Simulation Settings
 	int edgeMode;
 	int gravityMode;
@@ -113,12 +112,12 @@ public:
 	int pretty_powder;
 	int sandcolour;
 	int sandcolour_frame;
-	int DEFAULT_PT_NUM;
+	int deco_space;
 
-	int Load(GameSave * save);
-	int Load(int x, int y, GameSave * save);
-	GameSave * Save();
-	GameSave * Save(int x1, int y1, int x2, int y2);
+	int Load(GameSave * save, bool includePressure);
+	int Load(GameSave * save, bool includePressure, int x, int y);
+	GameSave * Save(bool includePressure);
+	GameSave * Save(bool includePressure, int x1, int y1, int x2, int y2);
 	void SaveSimOptions(GameSave * gameSave);
 	SimulationSample GetSample(int x, int y);
 
@@ -128,7 +127,6 @@ public:
 	int is_blocking(int t, int x, int y);
 	int is_boundary(int pt, int x, int y);
 	int find_next_boundary(int pt, int *x, int *y, int dm, int *em);
-	int pn_junction_sprk(int x, int y, int pt);
 	void photoelectric_effect(int nx, int ny);
 	unsigned direction_to_map(float dx, float dy, int t);
 	int do_move(int i, int x, int y, float nxf, float nyf);
@@ -144,10 +142,10 @@ public:
 	void kill_part(int i);
 	bool FloodFillPmapCheck(int x, int y, int type);
 	int flood_prop(int x, int y, size_t propoffset, PropertyValue propvalue, StructProperty::PropertyType proptype);
-	int flood_water(int x, int y, int i, int originaly, int check);
-	int FloodINST(int x, int y, int fullc, int cm);
+	bool flood_water(int x, int y, int i);
+	int FloodINST(int x, int y);
 	void detach(int i);
-	void part_change_type(int i, int x, int y, int t);
+	bool part_change_type(int i, int x, int y, int t);
 	//int InCurrentBrush(int i, int j, int rx, int ry);
 	//int get_brush_flags();
 	int create_part(int p, int x, int y, int t, int v = -1);
@@ -160,6 +158,7 @@ public:
 	void create_arc(int sx, int sy, int dx, int dy, int midpoints, int variance, int type, int flags);
 	void UpdateParticles(int start, int end);
 	void SimulateGoL();
+	void RecalcFreeParticles(bool do_life_dec);
 	void CheckStacking();
 	void BeforeSim();
 	void AfterSim();
@@ -167,6 +166,7 @@ public:
 	void clear_area(int area_x, int area_y, int area_w, int area_h);
 
 	void SetEdgeMode(int newEdgeMode);
+	void SetDecoSpace(int newDecoSpace);
 
 	//Drawing Deco
 	void ApplyDecoration(int x, int y, int colR, int colG, int colB, int colA, int mode);
@@ -177,11 +177,11 @@ public:
 	void ApplyDecorationFill(Renderer *ren, int x, int y, int colR, int colG, int colB, int colA, int replaceR, int replaceG, int replaceB);
 
 	//Drawing Tools like HEAT, AIR, and GRAV
-	int Tool(int x, int y, int tool, float strength = 1.0f);
+	int Tool(int x, int y, int tool, int brushX, int brushY, float strength = 1.0f);
 	int ToolBrush(int x, int y, int tool, Brush * cBrush, float strength = 1.0f);
 	void ToolLine(int x1, int y1, int x2, int y2, int tool, Brush * cBrush, float strength = 1.0f);
 	void ToolBox(int x1, int y1, int x2, int y2, int tool, float strength = 1.0f);
-	
+
 	//Drawing Walls
 	int CreateWalls(int x, int y, int rx, int ry, int wall, Brush * cBrush = NULL);
 	void CreateWallLine(int x1, int y1, int x2, int y2, int rx, int ry, int wall, Brush * cBrush = NULL);
@@ -197,10 +197,10 @@ public:
 	void CreateBox(int x1, int y1, int x2, int y2, int c, int flags = -1);
 	int FloodParts(int x, int y, int c, int cm, int flags = -1);
 
-	
+
 	void GetGravityField(int x, int y, float particleGrav, float newtonGrav, float & pGravX, float & pGravY);
 
-	int GetParticleType(std::string type);
+	int GetParticleType(ByteString type);
 
 	void orbitalparts_get(int block1, int block2, int resblock1[], int resblock2[]);
 	void orbitalparts_set(int *block1, int *block2, int resblock1[], int resblock2[]);
@@ -211,10 +211,36 @@ public:
 	Simulation();
 	~Simulation();
 
-	bool InBounds(int x, int y)
+	bool InBounds(int x, int y);
+
+	// These don't really belong anywhere at the moment, so go here for loop edge mode
+	static int remainder_p(int x, int y);
+	static float remainder_p(float x, float y);
+
+	String ElementResolve(int type, int ctype);
+	String BasicParticleInfo(Particle const &sample_part);
+
+
+	struct CustomGOLData
 	{
-		return (x>=0 && y>=0 && x<XRES && y<YRES);
-	}
+		int rule, colour1, colour2;
+		String nameString, ruleString;
+
+		inline bool operator <(const CustomGOLData &other) const
+		{
+			return rule < other.rule;
+		}
+	};
+
+private:
+	std::vector<CustomGOLData> customGol;
+
+public:
+	const CustomGOLData *GetCustomGOLByRule(int rule) const;
+	void SetCustomGOL(std::vector<CustomGOLData> newCustomGol);
+
+private:
+	CoordStack& getCoordStackSingleton();
 };
 
 #endif /* SIMULATION_H */

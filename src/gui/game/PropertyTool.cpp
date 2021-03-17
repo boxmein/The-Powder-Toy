@@ -1,9 +1,11 @@
-#include <iostream>
-#include <sstream>
+#include "Tool.h"
+
+#include "client/Client.h"
+#include "Menu.h"
+
+#include "gui/game/GameModel.h"
 #include "gui/Style.h"
 #include "gui/game/Brush.h"
-#include "simulation/Simulation.h"
-#include "Tool.h"
 #include "gui/interface/Window.h"
 #include "gui/interface/Button.h"
 #include "gui/interface/Label.h"
@@ -11,6 +13,15 @@
 #include "gui/interface/DropDown.h"
 #include "gui/interface/Keys.h"
 #include "gui/dialogues/ErrorMessage.h"
+
+#include "simulation/GOLString.h"
+#include "simulation/BuiltinGOL.h"
+#include "simulation/Simulation.h"
+#include "simulation/SimulationData.h"
+
+#include "graphics/Graphics.h"
+
+#include <iostream>
 
 class PropertyWindow: public ui::Window
 {
@@ -22,24 +33,10 @@ public:
 	std::vector<StructProperty> properties;
 	PropertyWindow(PropertyTool *tool_, Simulation *sim);
 	void SetProperty();
-	virtual void OnDraw();
-	virtual void OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt);
-	virtual void OnTryExit(ExitMethod method);
+	void OnDraw() override;
+	void OnKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt) override;
+	void OnTryExit(ExitMethod method) override;
 	virtual ~PropertyWindow() {}
-	class OkayAction: public ui::ButtonAction
-	{
-	public:
-		PropertyWindow * prompt;
-		OkayAction(PropertyWindow * prompt_) { prompt = prompt_; }
-		void ActionCallback(ui::Button * sender)
-		{
-			ui::Engine::Ref().CloseWindow();
-			if(prompt->textField->GetText().length())
-				prompt->SetProperty();
-			prompt->SelfDestruct();
-			return;
-		}
-	};
 };
 
 PropertyWindow::PropertyWindow(PropertyTool * tool_, Simulation *sim_):
@@ -48,55 +45,52 @@ tool(tool_),
 sim(sim_)
 {
 	properties = Particle::GetProperties();
-	
+
 	ui::Label * messageLabel = new ui::Label(ui::Point(4, 5), ui::Point(Size.X-8, 14), "Edit property");
 	messageLabel->SetTextColour(style::Colour::InformationTitle);
 	messageLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	messageLabel->Appearance.VerticalAlign = ui::Appearance::AlignTop;
 	AddComponent(messageLabel);
-	
+
 	ui::Button * okayButton = new ui::Button(ui::Point(0, Size.Y-17), ui::Point(Size.X, 17), "OK");
 	okayButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	okayButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	okayButton->Appearance.BorderInactive = ui::Colour(200, 200, 200);
-	okayButton->SetActionCallback(new OkayAction(this));
+	okayButton->SetActionCallback({ [this] {
+		if (textField->GetText().length())
+		{
+			CloseActiveWindow();
+			SetProperty();
+			SelfDestruct();
+		}
+	} });
 	AddComponent(okayButton);
 	SetOkayButton(okayButton);
-	
-	class PropertyChanged: public ui::DropDownAction
-	{
-		PropertyWindow * w;
-	public:
-		PropertyChanged(PropertyWindow * w): w(w) { }
-		virtual void OptionChanged(ui::DropDown * sender, std::pair<std::string, int> option)
-		{
-			w->FocusComponent(w->textField);
-		}
-	};
-	property = new ui::DropDown(ui::Point(8, 25), ui::Point(Size.X-16, 17));
-	property->SetActionCallback(new PropertyChanged(this));
+
+	property = new ui::DropDown(ui::Point(8, 25), ui::Point(Size.X-16, 16));
+	property->SetActionCallback({ [this] { FocusComponent(textField); } });
 	AddComponent(property);
-	for (size_t i = 0; i < properties.size(); i++)
+	for (int i = 0; i < int(properties.size()); i++)
 	{
-		property->AddOption(std::pair<std::string, int>(properties[i].Name, i));
+		property->AddOption(std::pair<String, int>(properties[i].Name.FromAscii(), i));
 	}
 	property->SetOption(Client::Ref().GetPrefInteger("Prop.Type", 0));
-	
+
 	textField = new ui::Textbox(ui::Point(8, 46), ui::Point(Size.X-16, 16), "", "[value]");
 	textField->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	textField->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	textField->SetText(Client::Ref().GetPrefString("Prop.Value", ""));
 	AddComponent(textField);
 	FocusComponent(textField);
-	
-	ui::Engine::Ref().ShowWindow(this);
+
+	MakeActiveWindow();
 }
 
 void PropertyWindow::SetProperty()
 {
 	if(property->GetOption().second!=-1 && textField->GetText().length() > 0)
 	{
-		std::string value = textField->GetText();
+		String value = textField->GetText().ToUpper();
 		try {
 			switch(properties[property->GetOption().second].Type)
 			{
@@ -104,83 +98,76 @@ void PropertyWindow::SetProperty()
 				case StructProperty::ParticleType:
 				{
 					int v;
-					if(value.length() > 2 && value.substr(0, 2) == "0x")
+					if(value.length() > 2 && value.BeginsWith("0X"))
 					{
 						//0xC0FFEE
-						std::stringstream buffer;
-						buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-						buffer << std::hex << value.substr(2);
-						buffer >> v;
+						v = value.Substr(2).ToNumber<unsigned int>(Format::Hex());
 					}
-					else if(value.length() > 1 && value[0] == '#')
+					else if(value.length() > 1 && value.BeginsWith("#"))
 					{
 						//#C0FFEE
-						std::stringstream buffer;
-						buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-						buffer << std::hex << value.substr(1);
-						buffer >> v;
+						v = value.Substr(1).ToNumber<unsigned int>(Format::Hex());
 					}
-					else 
+					else if (value.length() > 1 && value.BeginsWith("B") && value.Contains("/"))
 					{
-						if(properties[property->GetOption().second].Type == StructProperty::ParticleType)
+						v = ParseGOLString(value);
+						if (v == -1)
 						{
-							int type = sim->GetParticleType(value);
-							if(type != -1)
+							class InvalidGOLString : public std::exception
 							{
-#ifdef DEBUG
-								std::cout << "Got type from particle name" << std::endl;
-#endif
-								v = type;
-							}
-							else
-							{
-								std::stringstream buffer(value);
-								buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-								buffer >> v;
-							}
-							if (property->GetOption().first == "type" && (v < 0 || v >= PT_NUM || !sim->elements[v].Enabled))
-							{
-								new ErrorMessage("Could not set property", "Invalid Particle Type");
-								return;
-							}
-						}
-						else
-						{
-							std::stringstream buffer(value);
-							buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-							buffer >> v;
+							};
+							throw InvalidGOLString();
 						}
 					}
+					else
+					{
+						v = sim->GetParticleType(value.ToUtf8());
+						if (v == -1)
+						{
+							for (auto *elementTool : tool->gameModel->GetMenuList()[SC_LIFE]->GetToolList())
+							{
+								if (elementTool && elementTool->GetName() == value)
+								{
+									v = ID(elementTool->GetToolID());
+									break;
+								}
+							}
+						}
+						if (v == -1)
+						{
+							v = value.ToNumber<int>();
+						}
+					}
+
+					if (properties[property->GetOption().second].Name == "type" && (v < 0 || v >= PT_NUM || !sim->elements[v].Enabled))
+					{
+						new ErrorMessage("Could not set property", "Invalid particle type");
+						return;
+					}
+
 #ifdef DEBUG
 					std::cout << "Got int value " << v << std::endl;
 #endif
+
 					tool->propValue.Integer = v;
 					break;
 				}
 				case StructProperty::UInteger:
 				{
 					unsigned int v;
-					if(value.length() > 2 && value.substr(0, 2) == "0x")
+					if(value.length() > 2 && value.BeginsWith("0X"))
 					{
 						//0xC0FFEE
-						std::stringstream buffer;
-						buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-						buffer << std::hex << value.substr(2);
-						buffer >> v;
+						v = value.Substr(2).ToNumber<unsigned int>(Format::Hex());
 					}
-					else if(value.length() > 1 && value[0] == '#')
+					else if(value.length() > 1 && value.BeginsWith("#"))
 					{
 						//#C0FFEE
-						std::stringstream buffer;
-						buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-						buffer << std::hex << value.substr(1);
-						buffer >> v;
+						v = value.Substr(1).ToNumber<unsigned int>(Format::Hex());
 					}
-					else 
+					else
 					{
-						std::stringstream buffer(value);
-						buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-						buffer >> v;
+						v = value.ToNumber<unsigned int>();
 					}
 #ifdef DEBUG
 					std::cout << "Got uint value " << v << std::endl;
@@ -190,9 +177,20 @@ void PropertyWindow::SetProperty()
 				}
 				case StructProperty::Float:
 				{
-					std::stringstream buffer(value);
-					buffer.exceptions(std::stringstream::failbit | std::stringstream::badbit);
-					buffer >> tool->propValue.Float;
+					if (value.EndsWith("C"))
+					{
+						float v = value.SubstrFromEnd(1).ToNumber<float>();
+						tool->propValue.Float = v + 273.15;
+					}
+					else if(value.EndsWith("F"))
+					{
+						float v = value.SubstrFromEnd(1).ToNumber<float>();
+						tool->propValue.Float = (v-32.0f)*5/9+273.15f;
+					}
+					else
+					{
+						tool->propValue.Float = value.ToNumber<float>();
+					}
 #ifdef DEBUG
 					std::cout << "Got float value " << tool->propValue.Float << std::endl;
 #endif
@@ -204,34 +202,35 @@ void PropertyWindow::SetProperty()
 			}
 			tool->propOffset = properties[property->GetOption().second].Offset;
 			tool->propType = properties[property->GetOption().second].Type;
+			tool->changeType = properties[property->GetOption().second].Name == "type";
 		} catch (const std::exception& ex) {
 			new ErrorMessage("Could not set property", "Invalid value provided");
 			return;
 		}
 		Client::Ref().SetPref("Prop.Type", property->GetOption().second);
-		Client::Ref().SetPref("Prop.Value", textField->GetText());
+		Client::Ref().SetPrefUnicode("Prop.Value", textField->GetText());
 	}
 }
 
 void PropertyWindow::OnTryExit(ExitMethod method)
 {
-	ui::Engine::Ref().CloseWindow();
+	CloseActiveWindow();
 	SelfDestruct();
 }
 
 void PropertyWindow::OnDraw()
 {
-	Graphics * g = ui::Engine::Ref().g;
-	
+	Graphics * g = GetGraphics();
+
 	g->clearrect(Position.X-2, Position.Y-2, Size.X+3, Size.Y+3);
 	g->drawrect(Position.X, Position.Y, Size.X, Size.Y, 200, 200, 200, 255);
 }
 
-void PropertyWindow::OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt)
+void PropertyWindow::OnKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
 {
-	if (key == KEY_UP)
+	if (key == SDLK_UP)
 		property->SetOption(property->GetOption().second-1);
-	else if (key == KEY_DOWN)
+	else if (key == SDLK_DOWN)
 		property->SetOption(property->GetOption().second+1);
 }
 
@@ -249,17 +248,24 @@ void PropertyTool::SetProperty(Simulation *sim, ui::Point position)
 		i = sim->photons[position.Y][position.X];
 	if(!i)
 		return;
+
+	if (changeType)
+	{
+		sim->part_change_type(ID(i), int(sim->parts[ID(i)].x+0.5f), int(sim->parts[ID(i)].y+0.5f), propValue.Integer);
+		return;
+	}
+
 	switch (propType)
 	{
 		case StructProperty::Float:
-			*((float*)(((char*)&sim->parts[i>>8])+propOffset)) = propValue.Float;
+			*((float*)(((char*)&sim->parts[ID(i)])+propOffset)) = propValue.Float;
 			break;
 		case StructProperty::ParticleType:
 		case StructProperty::Integer:
-			*((int*)(((char*)&sim->parts[i>>8])+propOffset)) = propValue.Integer;
+			*((int*)(((char*)&sim->parts[ID(i)])+propOffset)) = propValue.Integer;
 			break;
 		case StructProperty::UInteger:
-			*((unsigned int*)(((char*)&sim->parts[i>>8])+propOffset)) = propValue.UInteger;
+			*((unsigned int*)(((char*)&sim->parts[ID(i)])+propOffset)) = propValue.UInteger;
 			break;
 		default:
 			break;

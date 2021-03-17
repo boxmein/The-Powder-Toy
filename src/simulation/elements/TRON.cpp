@@ -1,6 +1,14 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_TRON PT_TRON 143
-Element_TRON::Element_TRON()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+static void create(ELEMENT_CREATE_FUNC_ARGS);
+static void init_graphics();
+static int trymovetron(Simulation * sim, int x, int y, int dir, int i, int len);
+static bool canmovetron(Simulation * sim, int r, int len);
+static int new_tronhead(Simulation * sim, int x, int y, int i, int direction);
+
+void Element::Element_TRON()
 {
 	Identifier = "DEFAULT_PT_TRON";
 	Name = "TRON";
@@ -26,7 +34,7 @@ Element_TRON::Element_TRON()
 
 	Weight = 100;
 
-	Temperature = 0.0f;
+	DefaultProperties.temp = 0.0f;
 	HeatConduct = 40;
 	Description = "Smart particles, Travels in straight lines and avoids obstacles. Grows with time.";
 
@@ -41,10 +49,11 @@ Element_TRON::Element_TRON()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_TRON::update;
-	Graphics = &Element_TRON::graphics;
+	Update = &update;
+	Graphics = &graphics;
+	Create = &create;
 
-	Element_TRON::init_graphics();
+	init_graphics();
 }
 
 /* TRON element is meant to resemble a tron bike (or worm) moving around and trying to avoid obstacles itself.
@@ -75,8 +84,7 @@ int tron_rx[4] = {-1, 0, 1, 0};
 int tron_ry[4] = { 0,-1, 0, 1};
 unsigned int tron_colours[32];
 
-//#TPT-Directive ElementHeader Element_TRON static void init_graphics()
-void Element_TRON::init_graphics()
+static void init_graphics()
 {
 	int i;
 	int r, g, b;
@@ -87,8 +95,7 @@ void Element_TRON::init_graphics()
 	}
 }
 
-//#TPT-Directive ElementHeader Element_TRON static int update(UPDATE_FUNC_ARGS)
-int Element_TRON::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	if (parts[i].tmp&TRON_WAIT)
 	{
@@ -97,12 +104,12 @@ int Element_TRON::update(UPDATE_FUNC_ARGS)
 	}
 	if (parts[i].tmp&TRON_HEAD)
 	{
-		int firstdircheck = 0,seconddir,seconddircheck = 0,lastdir,lastdircheck = 0;
+		int firstdircheck = 0, seconddir = 0, seconddircheck = 0, lastdir = 0, lastdircheck = 0;
 		int direction = (parts[i].tmp>>5 & 0x3);
 		int originaldir = direction;
 
 		//random turn
-		int random = rand()%340;
+		int random = RNG::Ref().between(0, 339);
 		if ((random==1 || random==3) && !(parts[i].tmp & TRON_NORANDOM))
 		{
 			//randomly turn left(3) or right(1)
@@ -111,7 +118,7 @@ int Element_TRON::update(UPDATE_FUNC_ARGS)
 
 		//check in front
 		//do sight check
-		firstdircheck = Element_TRON::trymovetron(sim,x,y,direction,i,parts[i].tmp2);
+		firstdircheck = trymovetron(sim,x,y,direction,i,parts[i].tmp2);
 		if (firstdircheck < parts[i].tmp2)
 		{
 			if (parts[i].tmp & TRON_NORANDOM)
@@ -126,7 +133,7 @@ int Element_TRON::update(UPDATE_FUNC_ARGS)
 			}
 			else
 			{
-				seconddir = (direction + ((rand()%2)*2)+1)% 4;
+				seconddir = (direction + (RNG::Ref().between(0, 1)*2)+1)% 4;
 				lastdir = (seconddir + 2)%4;
 			}
 			seconddircheck = trymovetron(sim,x,y,seconddir,i,parts[i].tmp2);
@@ -138,7 +145,7 @@ int Element_TRON::update(UPDATE_FUNC_ARGS)
 		if (lastdircheck > seconddircheck && lastdircheck > firstdircheck)
 			direction = lastdir;
 		//now try making new head, even if it fails
-		if (Element_TRON::new_tronhead(sim,x + tron_rx[direction],y + tron_ry[direction],i,direction) == -1)
+		if (new_tronhead(sim,x + tron_rx[direction],y + tron_ry[direction],i,direction) == -1)
 		{
 			//ohgod crash
 			parts[i].tmp |= TRON_DEATH;
@@ -158,10 +165,7 @@ int Element_TRON::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-
-//#TPT-Directive ElementHeader Element_TRON static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_TRON::graphics(GRAPHICS_FUNC_ARGS)
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	unsigned int col = tron_colours[(cpart->tmp&0xF800)>>11];
 	if(cpart->tmp & TRON_HEAD)
@@ -186,8 +190,18 @@ int Element_TRON::graphics(GRAPHICS_FUNC_ARGS)
 	return 0;
 }
 
-//#TPT-Directive ElementHeader Element_TRON static int new_tronhead(Simulation * sim, int x, int y, int i, int direction)
-int Element_TRON::new_tronhead(Simulation * sim, int x, int y, int i, int direction)
+static void create(ELEMENT_CREATE_FUNC_ARGS)
+{
+	int randhue = RNG::Ref().between(0, 359);
+	int randomdir = RNG::Ref().between(0, 3);
+	// Set as a head and a direction
+	sim->parts[i].tmp = 1 | (randomdir << 5) | (randhue << 7);
+	// Tail
+	sim->parts[i].tmp2 = 4;
+	sim->parts[i].life = 5;
+}
+
+static int new_tronhead(Simulation * sim, int x, int y, int i, int direction)
 {
 	int np = sim->create_part(-1, x , y ,PT_TRON);
 	if (np==-1)
@@ -209,8 +223,7 @@ int Element_TRON::new_tronhead(Simulation * sim, int x, int y, int i, int direct
 	return 1;
 }
 
-//#TPT-Directive ElementHeader Element_TRON static int trymovetron(Simulation * sim, int x, int y, int dir, int i, int len)
-int Element_TRON::trymovetron(Simulation * sim, int x, int y, int dir, int i, int len)
+static int trymovetron(Simulation * sim, int x, int y, int dir, int i, int len)
 {
 	int k,j,r,rx,ry,tx,ty,count;
 	count = 0;
@@ -255,14 +268,11 @@ int Element_TRON::trymovetron(Simulation * sim, int x, int y, int dir, int i, in
 	return count;
 }
 
-//#TPT-Directive ElementHeader Element_TRON static bool canmovetron(Simulation * sim, int r, int len)
-bool Element_TRON::canmovetron(Simulation * sim, int r, int len)
+static bool canmovetron(Simulation * sim, int r, int len)
 {
-	if (!r || ((r&0xFF) == PT_SWCH && sim->parts[r>>8].life >= 10) || ((r&0xFF) == PT_INVIS && sim->parts[r>>8].tmp == 1))
+	if (!r || (TYP(r) == PT_SWCH && sim->parts[ID(r)].life >= 10) || (TYP(r) == PT_INVIS && sim->parts[ID(r)].tmp2 == 1))
 		return true;
-	if ((((sim->elements[r&0xFF].Properties & PROP_LIFE_KILL_DEC) && sim->parts[r>>8].life > 0)|| ((sim->elements[r&0xFF].Properties & PROP_LIFE_KILL) && (sim->elements[r&0xFF].Properties & PROP_LIFE_DEC))) && sim->parts[r>>8].life < len)
+	if ((((sim->elements[TYP(r)].Properties & PROP_LIFE_KILL_DEC) && sim->parts[ID(r)].life > 0)|| ((sim->elements[TYP(r)].Properties & PROP_LIFE_KILL) && (sim->elements[TYP(r)].Properties & PROP_LIFE_DEC))) && sim->parts[ID(r)].life < len)
 		return true;
 	return false;
 }
-
-Element_TRON::~Element_TRON() {}

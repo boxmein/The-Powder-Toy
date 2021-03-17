@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_BREC PT_BREC 135
-Element_BREC::Element_BREC()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_BREC()
 {
 	Identifier = "DEFAULT_PT_BREC";
 	Name = "BREL";
@@ -26,7 +28,6 @@ Element_BREC::Element_BREC()
 
 	Weight = 90;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 211;
 	Description = "Broken electronics. Formed from EMP blasts, and when constantly sparked while under pressure, turns to EXOT.";
 
@@ -41,26 +42,23 @@ Element_BREC::Element_BREC()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_BREC::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_BREC static int update(UPDATE_FUNC_ARGS)
-int Element_BREC::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	if (parts[i].life)
 	{
-		if (sim->pv[y/CELL][x/CELL]>10.0f) 
+		if (sim->pv[y/CELL][x/CELL]>10.0f)
 		{
-			if (parts[i].temp>9000 && sim->pv[y/CELL][x/CELL]>30.0f && !(rand()%200))
+			if (parts[i].temp>9000 && sim->pv[y/CELL][x/CELL]>30.0f && RNG::Ref().chance(1, 200))
 			{
 				sim->part_change_type(i, x ,y ,PT_EXOT);
 				parts[i].life = 1000;
 			}
 			parts[i].temp += (sim->pv[y/CELL][x/CELL])/8;
 		}
-		
+
 	}
 	return 0;
 }
-
-Element_BREC::~Element_BREC() {}

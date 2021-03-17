@@ -1,6 +1,10 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_CLST PT_CLST 155
-Element_CLST::Element_CLST()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+static void create(ELEMENT_CREATE_FUNC_ARGS);
+
+void Element::Element_CLST()
 {
 	Identifier = "DEFAULT_PT_CLST";
 	Name = "CLST";
@@ -26,7 +30,6 @@ Element_CLST::Element_CLST()
 
 	Weight = 55;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 70;
 	Description = "Clay dust. Produces paste when mixed with water.";
 
@@ -41,12 +44,12 @@ Element_CLST::Element_CLST()
 	HighTemperature = 1256.0f;
 	HighTemperatureTransition = PT_LAVA;
 
-	Update = &Element_CLST::update;
-	Graphics = &Element_CLST::graphics;
+	Update = &update;
+	Graphics = &graphics;
+	Create = &create;
 }
 
-//#TPT-Directive ElementHeader Element_CLST static int update(UPDATE_FUNC_ARGS)
-int Element_CLST::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	float cxy = 0;
@@ -57,29 +60,29 @@ int Element_CLST::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)==PT_WATR)
+				if (TYP(r)==PT_WATR)
 				{
-					if (!(rand()%1500))
+					if (RNG::Ref().chance(1, 1500))
 					{
 						sim->create_part(i, x, y, PT_PSTS);
-						sim->kill_part(r>>8);
+						sim->kill_part(ID(r));
 					}
 				}
-				else if ((r&0xFF)==PT_NITR)
+				else if (TYP(r)==PT_NITR)
 				{
 					sim->create_part(i, x, y, PT_BANG);
-					sim->create_part(r>>8, x+rx, y+ry, PT_BANG);
+					sim->create_part(ID(r), x+rx, y+ry, PT_BANG);
 				}
-				else if ((r&0xFF)==PT_CLST)
+				else if (TYP(r)==PT_CLST)
 				{
 					if(parts[i].temp <195)
-						cxy = 0.05;
+						cxy = 0.05f;
 					else if(parts[i].temp <295)
-						cxy = 0.015;
+						cxy = 0.015f;
 					else if(parts[i].temp <350)
-						cxy = 0.01;
+						cxy = 0.01f;
 					else
-						cxy = 0.005;
+						cxy = 0.005f;
 					parts[i].vx += cxy*rx;
 					parts[i].vy += cxy*ry;//These two can be set not to calculate over 350 later. They do virtually nothing over 0.005.
 				}
@@ -87,10 +90,7 @@ int Element_CLST::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_CLST static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_CLST::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	int z = (cpart->tmp - 5) * 16;//speckles!
 	*colr += z;
@@ -99,5 +99,7 @@ int Element_CLST::graphics(GRAPHICS_FUNC_ARGS)
 	return 0;
 }
 
-
-Element_CLST::~Element_CLST() {}
+static void create(ELEMENT_CREATE_FUNC_ARGS)
+{
+	sim->parts[i].tmp = RNG::Ref().between(0, 6);
+}

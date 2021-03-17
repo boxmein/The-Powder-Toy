@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_BANG PT_BANG 139
-Element_BANG::Element_BANG()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_BANG()
 {
 	Identifier = "DEFAULT_PT_BANG";
 	Name = "TNT";
@@ -26,7 +28,6 @@ Element_BANG::Element_BANG()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 88;
 	Description = "TNT, explodes all at once.";
 
@@ -41,11 +42,10 @@ Element_BANG::Element_BANG()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_BANG::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_BANG static int update(UPDATE_FUNC_ARGS)
-int Element_BANG::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	if(parts[i].tmp==0)
@@ -60,7 +60,7 @@ int Element_BANG::update(UPDATE_FUNC_ARGS)
 						r = pmap[y+ry][x+rx];
 						if (!r)
 							continue;
-						if ((r&0xFF)==PT_FIRE || (r&0xFF)==PT_PLSM || (r&0xFF)==PT_SPRK || (r&0xFF)==PT_LIGH)
+						if (TYP(r)==PT_FIRE || TYP(r)==PT_PLSM || TYP(r)==PT_SPRK || TYP(r)==PT_LIGH)
 						{
 							parts[i].tmp = 1;
 						}
@@ -69,7 +69,7 @@ int Element_BANG::update(UPDATE_FUNC_ARGS)
 	}
 	else if(parts[i].tmp==1)
 	{
-		if ((pmap[y][x]>>8 == i))
+		if ((ID(pmap[y][x]) == i))
 		{
 			PropertyValue value;
 			value.Integer = 2;
@@ -87,29 +87,29 @@ int Element_BANG::update(UPDATE_FUNC_ARGS)
 		//Explode!!
 		sim->pv[y/CELL][x/CELL] += 0.5f;
 		parts[i].tmp = 0;
-		if(!(rand()%3))
+		if (RNG::Ref().chance(1, 3))
 		{
-			if(!(rand()%2))
+			if (RNG::Ref().chance(1, 2))
 			{
 				sim->create_part(i, x, y, PT_FIRE);
 			}
 			else
 			{
 				sim->create_part(i, x, y, PT_SMKE);
-				parts[i].life = rand()%50+500;
+				parts[i].life = RNG::Ref().between(500, 549);
 			}
 			parts[i].temp = restrict_flt((MAX_TEMP/4)+otemp, MIN_TEMP, MAX_TEMP);
 		}
 		else
 		{
-			if(!(rand()%15))
+			if (RNG::Ref().chance(1, 15))
 			{
 				sim->create_part(i, x, y, PT_EMBR);
 				parts[i].tmp = 0;
 				parts[i].life = 50;
 				parts[i].temp = restrict_flt((MAX_TEMP/3)+otemp, MIN_TEMP, MAX_TEMP);
-				parts[i].vx = rand()%20-10;
-				parts[i].vy = rand()%20-10;
+				parts[i].vx = float(RNG::Ref().between(-10, 10));
+				parts[i].vy = float(RNG::Ref().between(-10, 10));
 			}
 			else
 			{
@@ -120,6 +120,3 @@ int Element_BANG::update(UPDATE_FUNC_ARGS)
 	}
 	return 0;
 }
-
-
-Element_BANG::~Element_BANG() {}

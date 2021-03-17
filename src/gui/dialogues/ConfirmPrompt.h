@@ -3,23 +3,23 @@
 
 #include "gui/interface/Window.h"
 
-class ConfirmDialogueCallback;
-class ConfirmPrompt: public ui::Window {
-public:
-	enum DialogueResult { ResultCancel, ResultOkay };
-	ConfirmPrompt(std::string title, std::string message, ConfirmDialogueCallback * callback_ = NULL);
-	ConfirmPrompt(std::string title, std::string message, std::string buttonText, ConfirmDialogueCallback * callback_ = NULL);
-	static bool Blocking(std::string title, std::string message, std::string buttonText = "Confirm");
-	virtual void OnDraw();
-	virtual ~ConfirmPrompt();
-	ConfirmDialogueCallback * callback;
-};
+#include <functional>
 
-class ConfirmDialogueCallback
+class ConfirmPrompt : public ui::Window
 {
-	public:
-		virtual void ConfirmCallback(ConfirmPrompt::DialogueResult result) {}
-		virtual ~ConfirmDialogueCallback() {}
+	struct ResultCallback
+	{
+		std::function<void ()> okay, cancel;
+	};
+
+	ResultCallback callback;
+
+public:
+	ConfirmPrompt(String title, String message, ResultCallback callback_ = {}, String buttonText = String("Confirm"));
+	virtual ~ConfirmPrompt() = default;
+
+	static bool Blocking(String title, String message, String buttonText = String("Confirm"));
+	void OnDraw() override;
 };
 
 #endif /* CONFIRMPROMPT_H_ */

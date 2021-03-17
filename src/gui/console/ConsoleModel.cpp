@@ -1,9 +1,12 @@
-#include "client/Client.h"
 #include "ConsoleModel.h"
 
+#include "ConsoleView.h"
+
+#include "client/Client.h"
+
 ConsoleModel::ConsoleModel() {
-	std::vector<std::string> previousHistory = Client::Ref().GetPrefStringArray("Console.History");
-	for(std::vector<std::string>::reverse_iterator iter = previousHistory.rbegin(), end = previousHistory.rend(); iter != end; ++iter)
+	std::vector<String> previousHistory = Client::Ref().GetPrefStringArray("Console.History");
+	for(std::vector<String>::reverse_iterator iter = previousHistory.rbegin(), end = previousHistory.rend(); iter != end; ++iter)
 	{
 		if(previousCommands.size()<25)
 		{
@@ -32,7 +35,7 @@ void ConsoleModel::SetCurrentCommandIndex(size_t index)
 
 ConsoleCommand ConsoleModel::GetCurrentCommand()
 {
-	if(currentCommandIndex < 0 || currentCommandIndex >= previousCommands.size())
+	if (currentCommandIndex >= previousCommands.size())
 	{
 		return ConsoleCommand("", 0, "");
 	}

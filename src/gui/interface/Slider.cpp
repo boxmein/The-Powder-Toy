@@ -1,6 +1,6 @@
-#include <iostream>
 #include "Slider.h"
-#include "Colour.h"
+
+#include "graphics/Graphics.h"
 
 namespace ui {
 
@@ -23,21 +23,21 @@ void Slider::updatePosition(int position)
 	if(position > Size.X-3)
 		position = Size.X-3;
 
-	float fPosition = position-3;
-	float fSize = Size.X-6;
+	auto fPosition = float(position-3);
+	auto fSize = float(Size.X-6);
 
 	float fSliderPosition = (fPosition/fSize)*sliderSteps;//position;//((x-3)/(Size.X-6))*sliderSteps;
 
-	int newSliderPosition = fSliderPosition;
+	auto newSliderPosition = int(fSliderPosition);
 
 	if(newSliderPosition == sliderPosition)
 		return;
 
 	sliderPosition = newSliderPosition;
 
-	if(actionCallback)
+	if (actionCallback.change)
 	{
-		actionCallback->ValueChangedCallback(this);
+		actionCallback.change();
 	}
 }
 
@@ -104,7 +104,7 @@ void Slider::SetSteps(int steps)
 
 void Slider::Draw(const Point& screenPos)
 {
-	Graphics * g = Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	//g->drawrect(screenPos.X, screenPos.Y, Size.X, Size.Y, 255, 255, 255, 255);
 
 	if(bgGradient)
@@ -120,20 +120,16 @@ void Slider::Draw(const Point& screenPos)
 
 	g->drawrect(screenPos.X+3, screenPos.Y+3, Size.X-6, Size.Y-6, 255, 255, 255, 255);
 
-	float fPosition = sliderPosition;
-	float fSize = Size.X-6;
-	float fSteps = sliderSteps;
+	auto fPosition = float(sliderPosition);
+	auto fSize = float(Size.X-6);
+	auto fSteps = float(sliderSteps);
 
-	float fSliderX = (fSize/fSteps)*fPosition;//sliderPosition;//((Size.X-6)/sliderSteps)*sliderPosition;
-	int sliderX = fSliderX;
+	auto fSliderX = (fSize/fSteps)*fPosition;//sliderPosition;//((Size.X-6)/sliderSteps)*sliderPosition;
+	auto sliderX = int(fSliderX);
 	sliderX += 3;
 
 	g->fillrect(screenPos.X+sliderX-2, screenPos.Y+1, 4, Size.Y-2, 20, 20, 20, 255);
 	g->drawrect(screenPos.X+sliderX-2, screenPos.Y+1, 4, Size.Y-2, 200, 200, 200, 255);
-}
-
-Slider::~Slider()
-{
 }
 
 } /* namespace ui */

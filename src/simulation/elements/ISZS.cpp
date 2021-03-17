@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_ISZS PT_ISZS 108
-Element_ISZS::Element_ISZS()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_ISZS()
 {
 	Identifier = "DEFAULT_PT_ISZS";
 	Name = "ISZS";
@@ -26,7 +28,7 @@ Element_ISZS::Element_ISZS()
 
 	Weight = 100;
 
-	Temperature = 140.00f;
+	DefaultProperties.temp = 140.00f;
 	HeatConduct = 251;
 	Description = "Solid form of ISOZ, slowly decays into PHOT.";
 
@@ -41,23 +43,19 @@ Element_ISZS::Element_ISZS()
 	HighTemperature = 300.0f;
 	HighTemperatureTransition = PT_ISOZ;
 
-	Update = &Element_ISZS::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_ISZS static int update(UPDATE_FUNC_ARGS)
-int Element_ISZS::update(UPDATE_FUNC_ARGS)
- { // for both ISZS and ISOZ
+static int update(UPDATE_FUNC_ARGS)
+{
 	float rr, rrr;
-	if (!(rand()%200) && ((int)(-4.0f*(sim->pv[y/CELL][x/CELL])))>(rand()%1000))
+	if (RNG::Ref().chance(1, 200) && RNG::Ref().chance(int(-4.0f * sim->pv[y/CELL][x/CELL]), 1000))
 	{
 		sim->create_part(i, x, y, PT_PHOT);
-		rr = (rand()%228+128)/127.0f;
-		rrr = (rand()%360)*3.14159f/180.0f;
+		rr = RNG::Ref().between(128, 355) / 127.0f;
+		rrr = RNG::Ref().between(0, 359) * 3.14159f / 180.0f;
 		parts[i].vx = rr*cosf(rrr);
 		parts[i].vy = rr*sinf(rrr);
 	}
 	return 0;
 }
-
-
-Element_ISZS::~Element_ISZS() {}

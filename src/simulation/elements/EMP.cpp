@@ -1,8 +1,9 @@
-#include "simulation/Elements.h"
+#include "simulation/ElementCommon.h"
 #include "Probability.h"
 
-//#TPT-Directive ElementClass Element_EMP PT_EMP 134
-Element_EMP::Element_EMP()
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_EMP()
 {
 	Identifier = "DEFAULT_PT_EMP";
 	Name = "EMP";
@@ -28,7 +29,6 @@ Element_EMP::Element_EMP()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 121;
 	Description = "Electromagnetic pulse. Breaks activated electronics.";
 
@@ -43,8 +43,7 @@ Element_EMP::Element_EMP()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = NULL;
-	Graphics = &Element_EMP::graphics;
+	Graphics = &graphics;
 }
 
 class DeltaTempGenerator
@@ -67,12 +66,11 @@ public:
 	}
 	void apply(Simulation *sim, Particle &p)
 	{
-		p.temp = restrict_flt(p.temp+getDelta(Probability::randFloat()), MIN_TEMP, MAX_TEMP);
+		p.temp = restrict_flt(p.temp+getDelta(RNG::Ref().uniform01()), MIN_TEMP, MAX_TEMP);
 	}
 };
 
-//#TPT-Directive ElementHeader Element_EMP static int Trigger(Simulation *sim, int triggerCount)
-int Element_EMP::Trigger(Simulation *sim, int triggerCount)
+void Element_EMP_Trigger(Simulation *sim, int triggerCount)
 {
 	/* Known differences from original one-particle-at-a-time version:
 	 * - SPRK that disappears during a frame (such as SPRK with life==0 on that frame) will not cause destruction around it.
@@ -110,8 +108,8 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 	for (int r = 0; r <=sim->parts_lastActiveIndex; r++)
 	{
 		int t = parts[r].type;
-		int rx = parts[r].x;
-		int ry = parts[r].y;
+		auto rx = int(parts[r].x);
+		auto ry = int(parts[r].y);
 		if (t==PT_SPRK || (t==PT_SWCH && parts[r].life!=0 && parts[r].life!=10) || (t==PT_WIRE && parts[r].ctype>0))
 		{
 			bool is_elec = false;
@@ -120,9 +118,9 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 			{
 				is_elec = true;
 				temp_center.apply(sim, parts[r]);
-				if (Probability::randFloat() < prob_changeCenter)
+				if (RNG::Ref().uniform01() < prob_changeCenter)
 				{
-					if (rand()%5 < 2)
+					if (RNG::Ref().chance(2, 5))
 						sim->part_change_type(r, rx, ry, PT_BREC);
 					else
 						sim->part_change_type(r, rx, ry, PT_NTCT);
@@ -135,8 +133,8 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 						int n = sim->pmap[ry+ny][rx+nx];
 						if (!n)
 							continue;
-						int ntype = n&0xFF;
-						n = n >> 8;
+						int ntype = TYP(n);
+						n = ID(n);
 						//Some elements should only be affected by wire/swch, or by a spark on inst/semiconductor
 						//So not affected by spark on metl, watr etc
 						if (is_elec)
@@ -145,10 +143,10 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 							{
 							case PT_METL:
 								temp_metal.apply(sim, parts[n]);
-								if (Probability::randFloat() < prob_breakMETL)
+								if (RNG::Ref().uniform01() < prob_breakMETL)
 								{
 									sim->part_change_type(n, rx+nx, ry+ny, PT_BMTL);
-									if (Probability::randFloat() < prob_breakMETLMore)
+									if (RNG::Ref().uniform01() < prob_breakMETLMore)
 									{
 										sim->part_change_type(n, rx+nx, ry+ny, PT_BRMT);
 										parts[n].temp = restrict_flt(parts[n].temp+1000.0f, MIN_TEMP, MAX_TEMP);
@@ -157,19 +155,19 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 								break;
 							case PT_BMTL:
 								temp_metal.apply(sim, parts[n]);
-								if (Probability::randFloat() < prob_breakBMTL)
+								if (RNG::Ref().uniform01() < prob_breakBMTL)
 								{
 									sim->part_change_type(n, rx+nx, ry+ny, PT_BRMT);
 									parts[n].temp = restrict_flt(parts[n].temp+1000.0f, MIN_TEMP, MAX_TEMP);
 								}
 								break;
 							case PT_WIFI:
-								if (Probability::randFloat() < prob_randWIFI)
+								if (RNG::Ref().uniform01() < prob_randWIFI)
 								{
 									// Randomize channel
-									parts[n].temp = rand()%MAX_TEMP;
+									parts[n].temp = float(RNG::Ref().between(0, MAX_TEMP-1));
 								}
-								if (Probability::randFloat() < prob_breakWIFI)
+								if (RNG::Ref().uniform01() < prob_breakWIFI)
 								{
 									sim->create_part(n, rx+nx, ry+ny, PT_BREC);
 									parts[n].temp = restrict_flt(parts[n].temp+1000.0f, MIN_TEMP, MAX_TEMP);
@@ -182,22 +180,22 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 						switch (ntype)
 						{
 						case PT_SWCH:
-							if (Probability::randFloat() < prob_breakSWCH)
+							if (RNG::Ref().uniform01() < prob_breakSWCH)
 								sim->part_change_type(n, rx+nx, ry+ny, PT_BREC);
 							temp_SWCH.apply(sim, parts[n]);
 							break;
 						case PT_ARAY:
-							if (Probability::randFloat() < prob_breakARAY)
+							if (RNG::Ref().uniform01() < prob_breakARAY)
 							{
 								sim->create_part(n, rx+nx, ry+ny, PT_BREC);
 								parts[n].temp = restrict_flt(parts[n].temp+1000.0f, MIN_TEMP, MAX_TEMP);
 							}
 							break;
 						case PT_DLAY:
-							if (Probability::randFloat() < prob_randDLAY)
+							if (RNG::Ref().uniform01() < prob_randDLAY)
 							{
 								// Randomize delay
-								parts[n].temp = (rand()%256) + 273.15f;
+								parts[n].temp = RNG::Ref().between(0, 255) + 273.15f;
 							}
 							break;
 						default:
@@ -206,22 +204,15 @@ int Element_EMP::Trigger(Simulation *sim, int triggerCount)
 					}
 		}
 	}
-	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_EMP static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_EMP::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	if(cpart->life)
 	{
-		*colr = cpart->life*1.5;
-		*colg = cpart->life*1.5;
+		*colr = int(cpart->life*1.5);
+		*colg = int(cpart->life*1.5);
 		*colb = 200-(cpart->life);
 	}
 	return 0;
 }
-
-
-Element_EMP::~Element_EMP() {}

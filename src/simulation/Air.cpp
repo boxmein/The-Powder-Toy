@@ -1,11 +1,11 @@
+#include "Air.h"
+
 #include <cmath>
 #include <algorithm>
-#include "Config.h"
-#include "Air.h"
+
 #include "Simulation.h"
-//#include <powder.h>
-//#include <defines.h>
-#include "Gravity.h"
+#include "ElementClasses.h"
+#include "common/tpt-rand.h"
 
 /*float kernel[9];
 
@@ -144,14 +144,14 @@ void Air::update_air(void)
 			pv[i][2] = pv[i][2]*0.8f;
 			pv[i][XRES/CELL-2] = pv[i][XRES/CELL-2]*0.8f;
 			pv[i][XRES/CELL-1] = pv[i][XRES/CELL-1]*0.8f;
-			vx[i][0] = vx[i][1]*0.9f;
-			vx[i][1] = vx[i][2]*0.9f;
-			vx[i][XRES/CELL-2] = vx[i][XRES/CELL-3]*0.9f;
-			vx[i][XRES/CELL-1] = vx[i][XRES/CELL-2]*0.9f;
-			vy[i][0] = vy[i][1]*0.9f;
-			vy[i][1] = vy[i][2]*0.9f;
-			vy[i][XRES/CELL-2] = vy[i][XRES/CELL-3]*0.9f;
-			vy[i][XRES/CELL-1] = vy[i][XRES/CELL-2]*0.9f;
+			vx[i][0] = vx[i][0]*0.9f;
+			vx[i][1] = vx[i][1]*0.9f;
+			vx[i][XRES/CELL-2] = vx[i][XRES/CELL-2]*0.9f;
+			vx[i][XRES/CELL-1] = vx[i][XRES/CELL-1]*0.9f;
+			vy[i][0] = vy[i][0]*0.9f;
+			vy[i][1] = vy[i][1]*0.9f;
+			vy[i][XRES/CELL-2] = vy[i][XRES/CELL-2]*0.9f;
+			vy[i][XRES/CELL-1] = vy[i][XRES/CELL-1]*0.9f;
 		}
 		for (i=0; i<XRES/CELL; i++) //reduces pressure/velocity on the edges every frame
 		{
@@ -160,14 +160,14 @@ void Air::update_air(void)
 			pv[2][i] = pv[2][i]*0.8f;
 			pv[YRES/CELL-2][i] = pv[YRES/CELL-2][i]*0.8f;
 			pv[YRES/CELL-1][i] = pv[YRES/CELL-1][i]*0.8f;
-			vx[0][i] = vx[1][i]*0.9f;
-			vx[1][i] = vx[2][i]*0.9f;
-			vx[YRES/CELL-2][i] = vx[YRES/CELL-3][i]*0.9f;
-			vx[YRES/CELL-1][i] = vx[YRES/CELL-2][i]*0.9f;
-			vy[0][i] = vy[1][i]*0.9f;
-			vy[1][i] = vy[2][i]*0.9f;
-			vy[YRES/CELL-2][i] = vy[YRES/CELL-3][i]*0.9f;
-			vy[YRES/CELL-1][i] = vy[YRES/CELL-2][i]*0.9f;
+			vx[0][i] = vx[0][i]*0.9f;
+			vx[1][i] = vx[1][i]*0.9f;
+			vx[YRES/CELL-2][i] = vx[YRES/CELL-2][i]*0.9f;
+			vx[YRES/CELL-1][i] = vx[YRES/CELL-1][i]*0.9f;
+			vy[0][i] = vy[0][i]*0.9f;
+			vy[1][i] = vy[1][i]*0.9f;
+			vy[YRES/CELL-2][i] = vy[YRES/CELL-2][i]*0.9f;
+			vy[YRES/CELL-1][i] = vy[YRES/CELL-1][i]*0.9f;
 		}
 
 		for (j=1; j<YRES/CELL; j++) //clear some velocities near walls
@@ -240,20 +240,20 @@ void Air::update_air(void)
 				if ((dx*advDistanceMult>1.0f || dy*advDistanceMult>1.0f) && (tx>=2 && tx<XRES/CELL-2 && ty>=2 && ty<YRES/CELL-2))
 				{
 					// Trying to take velocity from far away, check whether there is an intervening wall. Step from current position to desired source location, looking for walls, with either the x or y step size being 1 cell
-					if (abs(dx)>abs(dy))
+					if (std::abs(dx)>std::abs(dy))
 					{
-						stepX = (dx<0.0f) ? 1 : -1;
+						stepX = (dx<0.0f) ? 1.f : -1.f;
 						stepY = -dy/fabsf(dx);
 						stepLimit = (int)(fabsf(dx*advDistanceMult));
 					}
 					else
 					{
-						stepY = (dy<0.0f) ? 1 : -1;
+						stepY = (dy<0.0f) ? 1.f : -1.f;
 						stepX = -dx/fabsf(dy);
 						stepLimit = (int)(fabsf(dy*advDistanceMult));
 					}
-					tx = x;
-					ty = y;
+					tx = float(x);
+					ty = float(y);
 					for (step=0; step<stepLimit; ++step)
 					{
 						tx += stepX;
@@ -352,6 +352,36 @@ void Air::Invert()
 		}
 }
 
+// called when loading saves / stamps to ensure nothing "leaks" the first frame
+void Air::RecalculateBlockAirMaps()
+{
+	for (int i = 0; i <= sim.parts_lastActiveIndex; i++)
+	{
+		int type = sim.parts[i].type;
+		if (!type)
+			continue;
+		// Real TTAN would only block if there was enough TTAN
+		// but it would be more expensive and complicated to actually check that
+		// so just block for a frame, if it wasn't supposed to block it will continue allowing air next frame
+		if (type == PT_TTAN)
+		{
+			int x = ((int)(sim.parts[i].x+0.5f))/CELL, y = ((int)(sim.parts[i].y+0.5f))/CELL;
+			if (sim.InBounds(x, y))
+			{
+				bmap_blockair[y][x] = 1;
+				bmap_blockairh[y][x] = 0x8;
+			}
+		}
+		// mostly accurate insulator blocking, besides checking GEL
+		else if ((type == PT_HSWC && sim.parts[i].life != 10) || sim.elements[type].HeatConduct <= (random_gen()%250))
+		{
+			int x = ((int)(sim.parts[i].x+0.5f))/CELL, y = ((int)(sim.parts[i].y+0.5f))/CELL;
+			if (sim.InBounds(x, y) && !(bmap_blockairh[y][x]&0x8))
+				bmap_blockairh[y][x]++;
+		}
+	}
+}
+
 Air::Air(Simulation & simulation):
 	sim(simulation),
 	airMode(0),
@@ -359,8 +389,8 @@ Air::Air(Simulation & simulation):
 {
 	//Simulation should do this.
 	make_kernel();
-	std::fill(&bmap_blockair[0][0], &bmap_blockairh[0][0]+((XRES/CELL)*(YRES/CELL)), 0);
-	std::fill(&bmap_blockairh[0][0], &bmap_blockair[0][0]+((XRES/CELL)*(YRES/CELL)), 0);
+	std::fill(&bmap_blockair[0][0], &bmap_blockair[0][0]+((XRES/CELL)*(YRES/CELL)), 0);
+	std::fill(&bmap_blockairh[0][0], &bmap_blockairh[0][0]+((XRES/CELL)*(YRES/CELL)), 0);
 	std::fill(&vx[0][0], &vx[0][0]+((XRES/CELL)*(YRES/CELL)), 0.0f);
 	std::fill(&ovx[0][0], &ovx[0][0]+((XRES/CELL)*(YRES/CELL)), 0.0f);
 	std::fill(&vy[0][0], &vy[0][0]+((XRES/CELL)*(YRES/CELL)), 0.0f);

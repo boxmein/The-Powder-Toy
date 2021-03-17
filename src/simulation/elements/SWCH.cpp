@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_SWCH PT_SWCH 56
-Element_SWCH::Element_SWCH()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_SWCH()
 {
 	Identifier = "DEFAULT_PT_SWCH";
 	Name = "SWCH";
@@ -26,7 +29,6 @@ Element_SWCH::Element_SWCH()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 251;
 	Description = "Only conducts when switched on. (PSCN switches on, NSCN switches off)";
 
@@ -41,17 +43,16 @@ Element_SWCH::Element_SWCH()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_SWCH::update;
-	Graphics = &Element_SWCH::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-bool isRedBRAY(UPDATE_FUNC_ARGS, int xc, int yc)
+static bool isRedBRAY(UPDATE_FUNC_ARGS, int xc, int yc)
 {
-	return (pmap[yc][xc]&0xFF) == PT_BRAY && parts[pmap[yc][xc]>>8].tmp == 2;
+	return TYP(pmap[yc][xc]) == PT_BRAY && parts[ID(pmap[yc][xc])].tmp == 2;
 }
 
-//#TPT-Directive ElementHeader Element_SWCH static int update(UPDATE_FUNC_ARGS)
-int Element_SWCH::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rt, rx, ry;
 	if (parts[i].life>0 && parts[i].life!=10)
@@ -63,19 +64,19 @@ int Element_SWCH::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if (sim->parts_avg(i,r>>8,PT_INSL)!=PT_INSL) {
-					rt = r&0xFF;
+				if (sim->parts_avg(i,ID(r),PT_INSL)!=PT_INSL) {
+					rt = TYP(r);
 					if (rt==PT_SWCH)
 					{
-						if (parts[i].life>=10&&parts[r>>8].life<10&&parts[r>>8].life>0)
+						if (parts[i].life>=10&&parts[ID(r)].life<10&&parts[ID(r)].life>0)
 							parts[i].life = 9;
-						else if (parts[i].life==0&&parts[r>>8].life>=10)
+						else if (parts[i].life==0&&parts[ID(r)].life>=10)
 						{
 							//Set to other particle's life instead of 10, otherwise spark loops form when SWCH is sparked while turning on
-							parts[i].life = parts[r>>8].life;
+							parts[i].life = parts[ID(r)].life;
 						}
 					}
-					else if (rt==PT_SPRK && parts[i].life==10 && parts[r>>8].life>0 && parts[r>>8].ctype!=PT_PSCN && parts[r>>8].ctype!=PT_NSCN) {
+					else if (rt==PT_SPRK && parts[i].life==10 && parts[ID(r)].life>0 && parts[ID(r)].ctype!=PT_PSCN && parts[ID(r)].ctype!=PT_NSCN) {
 						sim->part_change_type(i,x,y,PT_SPRK);
 						parts[i].ctype = PT_SWCH;
 						parts[i].life = 4;
@@ -83,7 +84,7 @@ int Element_SWCH::update(UPDATE_FUNC_ARGS)
 				}
 			}
 	//turn SWCH on/off from two red BRAYS. There must be one either above or below, and one either left or right to work, and it can't come from the side, it must be a diagonal beam
-	if (!(pmap[y-1][x-1]&0xFF) && !(pmap[y-1][x+1]&0xFF) && (isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x, y-1) || isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x, y+1)) && (isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x+1, y) || isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x-1, y)))
+	if (!TYP(pmap[y-1][x-1]) && !TYP(pmap[y-1][x+1]) && (isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x, y-1) || isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x, y+1)) && (isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x+1, y) || isRedBRAY(UPDATE_FUNC_SUBCALL_ARGS, x-1, y)))
 	{
 		if (parts[i].life == 10)
 			parts[i].life = 9;
@@ -93,10 +94,7 @@ int Element_SWCH::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_SWCH static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_SWCH::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	if(cpart->life >= 10)
 	{
@@ -107,6 +105,3 @@ int Element_SWCH::graphics(GRAPHICS_FUNC_ARGS)
 	}
 	return 0;
 }
-
-
-Element_SWCH::~Element_SWCH() {}

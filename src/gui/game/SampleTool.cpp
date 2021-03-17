@@ -1,8 +1,15 @@
-#include <iostream>
-#include "graphics/Graphics.h"
 #include "Tool.h"
-#include "GameModel.h"
+
+#include "graphics/Graphics.h"
+#include "graphics/Renderer.h"
+
+#include "gui/game/GameModel.h"
 #include "gui/interface/Colour.h"
+
+#include "simulation/Simulation.h"
+#include "simulation/ElementClasses.h"
+
+#include "Menu.h"
 
 VideoBuffer * SampleTool::GetIcon(int toolID, int width, int height)
 {
@@ -15,8 +22,10 @@ VideoBuffer * SampleTool::GetIcon(int toolID, int width, int height)
 			newTexture->SetPixel(x, y, PIXR(pc), PIXG(pc), PIXB(pc), 255);
 		}
 	}
-	newTexture->SetCharacter((width/2)-5, (height/2)-5, 0xE6, 255, 255, 255, 255);
-	newTexture->BlendCharacter((width/2)-5, (height/2)-5, 0xE7, 100, 180, 255, 255);
+	newTexture->AddCharacter((width/2)-5, (height/2)-5, 0xE066, 255, 255, 255, 255);
+	newTexture->BlendPixel(10, 9, 100, 180, 255, 255);
+	newTexture->BlendPixel(11, 8, 100, 180, 255, 255);
+	newTexture->BlendPixel(12, 7, 100, 180, 255, 255);
 	return newTexture;
 }
 
@@ -29,36 +38,37 @@ void SampleTool::Draw(Simulation * sim, Brush * brush, ui::Point position)
 	}
 	else
 	{
-		int particleType = 0;
-		int particleCtype = 0;
+		Particle *part = nullptr;
 		if (sim->photons[position.Y][position.X])
 		{
-			particleType = sim->parts[sim->photons[position.Y][position.X]>>8].type;
-			particleCtype = sim->parts[sim->pmap[position.Y][position.X]>>8].ctype;
+			part = &sim->parts[ID(sim->photons[position.Y][position.X])];
 		}
 		else if (sim->pmap[position.Y][position.X])
 		{
-			particleType = sim->parts[sim->pmap[position.Y][position.X]>>8].type;
-			particleCtype = sim->parts[sim->pmap[position.Y][position.X]>>8].ctype;
+			part = &sim->parts[ID(sim->pmap[position.Y][position.X])];
 		}
-
-		if(particleType)
+		if (part)
 		{
-			if(particleType == PT_LIFE)
+			if (part->type == PT_LIFE)
 			{
-				Menu * lifeMenu = gameModel->GetMenuList()[SC_LIFE];
-				std::vector<Tool*> elementTools = lifeMenu->GetToolList();
-
-				for(std::vector<Tool*>::iterator iter = elementTools.begin(), end = elementTools.end(); iter != end; ++iter)
+				bool found = false;
+				for (auto *elementTool : gameModel->GetMenuList()[SC_LIFE]->GetToolList())
 				{
-					Tool * elementTool = *iter;
-					if(elementTool && elementTool->GetToolID() == particleCtype)
+					if (elementTool && ID(elementTool->GetToolID()) == part->ctype)
+					{
 						gameModel->SetActiveTool(0, elementTool);
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+				{
+					((GOLTool *)(gameModel->GetToolFromIdentifier("DEFAULT_UI_ADDLIFE")))->OpenWindow(gameModel->GetSimulation(), 0, part->ctype, part->dcolour, part->tmp);
 				}
 			}
 			else
 			{
-				Tool * elementTool = gameModel->GetElementTool(particleType);
+				Tool * elementTool = gameModel->GetElementTool(part->type);
 				if(elementTool)
 					gameModel->SetActiveTool(0, elementTool);
 			}

@@ -2,17 +2,16 @@
 #define PREVIEWVIEW_H_
 
 #include <vector>
-#include "Comment.h"
+#include <set>
+#include "common/String.h"
 #include "gui/interface/Window.h"
-#include "gui/preview/PreviewController.h"
-#include "gui/preview/PreviewModel.h"
-#include "gui/interface/Button.h"
-#include "gui/interface/CopyTextButton.h"
-#include "gui/interface/Label.h"
-#include "gui/interface/Textbox.h"
 
 namespace ui
 {
+	class Button;
+	class CopyTextButton;
+	class Label;
+	class Textbox;
 	class ScrollPanel;
 	class AvatarButton;
 }
@@ -20,11 +19,8 @@ namespace ui
 class VideoBuffer;
 class PreviewModel;
 class PreviewController;
-class PreviewView: public ui::Window {
-	class SubmitCommentAction;
-	class LoginAction;
-	class AutoCommentSizeAction;
-	class AvatarAction;
+class PreviewView: public ui::Window
+{
 	PreviewController * c;
 	VideoBuffer * savePreview;
 	ui::Button * openButton;
@@ -33,6 +29,7 @@ class PreviewView: public ui::Window {
 	ui::Button * reportButton;
 	ui::Button * submitCommentButton;
 	ui::Textbox * addCommentBox;
+	ui::Label * commentWarningLabel;
 	ui::Label * saveNameLabel;
 	ui::Label * authorDateLabel;
 	ui::AvatarButton * avatarButton;
@@ -47,9 +44,10 @@ class PreviewView: public ui::Window {
 	std::vector<ui::Component*> commentTextComponents;
 	int votesUp;
 	int votesDown;
+	bool userIsAuthor;
 	bool doOpen;
 	bool doError;
-	std::string doErrorMessage;
+	String doErrorMessage;
 	bool showAvatars;
 	bool prevPage;
 
@@ -58,10 +56,15 @@ class PreviewView: public ui::Window {
 	float commentBoxPositionY;
 	float commentBoxSizeX;
 	float commentBoxSizeY;
+	bool commentHelpText;
+
+	std::set<String> swearWords;
 
 	void displayComments();
 	void commentBoxAutoHeight();
 	void submitComment();
+	bool CheckSwearing(String text);
+	void CheckComment();
 public:
 	void AttachController(PreviewController * controller);
 	PreviewView();
@@ -69,14 +72,14 @@ public:
 	void NotifyCommentsChanged(PreviewModel * sender);
 	void NotifyCommentsPageChanged(PreviewModel * sender);
 	void NotifyCommentBoxEnabledChanged(PreviewModel * sender);
-	void SaveLoadingError(std::string errorMessage);
-	virtual void OnDraw();
-	virtual void DoDraw();
-	virtual void OnTick(float dt);
-	virtual void OnTryExit(ExitMethod method);
-	virtual void OnMouseWheel(int x, int y, int d);
-	virtual void OnMouseUp(int x, int y, unsigned int button);
-	virtual void OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt);
+	void SaveLoadingError(String errorMessage);
+	void OnDraw() override;
+	void DoDraw() override;
+	void OnTick(float dt) override;
+	void OnTryExit(ExitMethod method) override;
+	void OnMouseWheel(int x, int y, int d) override;
+	void OnMouseUp(int x, int y, unsigned int button) override;
+	void OnKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt) override;
 	virtual ~PreviewView();
 };
 

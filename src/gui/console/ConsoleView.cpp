@@ -1,56 +1,71 @@
 #include "ConsoleView.h"
+
+#include "ConsoleController.h"
+#include "ConsoleModel.h"
+
+#include <deque>
+
+#include "graphics/Graphics.h"
+
+#include "Config.h"
+
+#include "ConsoleCommand.h"
+
 #include "gui/interface/Keys.h"
+#include "gui/interface/Label.h"
+#include "gui/interface/Textbox.h"
 
 ConsoleView::ConsoleView():
 	ui::Window(ui::Point(0, 0), ui::Point(WINDOWW, 150)),
 	commandField(NULL)
 {
-	class CommandHighlighter: public ui::TextboxAction
-	{
-		ConsoleView * v;
-	public:
-		CommandHighlighter(ConsoleView * v_) { v = v_; }
-		virtual void TextChangedCallback(ui::Textbox * sender)
-		{
-			sender->SetDisplayText(v->c->FormatCommand(sender->GetText()));
-		}
-	};
 	commandField = new ui::Textbox(ui::Point(0, Size.Y-16), ui::Point(Size.X, 16), "");
 	commandField->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	commandField->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
-	commandField->SetActionCallback(new CommandHighlighter(this));
+	commandField->SetActionCallback({ [this] { commandField->SetDisplayText(c->FormatCommand(commandField->GetText())); } });
 	AddComponent(commandField);
 	FocusComponent(commandField);
 	commandField->SetBorder(false);
 }
 
-void ConsoleView::DoKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt)
+void ConsoleView::DoKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
 {
+	if ((scan == SDL_SCANCODE_GRAVE && key != '~') || key == SDLK_ESCAPE)
+	{
+		if (!repeat)
+			doClose = true;
+		return;
+	}
 	switch(key)
 	{
-	case KEY_ESCAPE:
-	case '`':
-		if (character != '~')
-			c->CloseConsole();
-		else
-			Window::DoKeyPress(key, character, shift, ctrl, alt);
-		break;
-	case KEY_RETURN:
-	case KEY_ENTER:
+	case SDLK_RETURN:
+	case SDLK_KP_ENTER:
 		c->EvaluateCommand(commandField->GetText());
 		commandField->SetText("");
 		commandField->SetDisplayText("");
 		break;
-	case KEY_DOWN:
+	case SDLK_DOWN:
 		c->NextCommand();
 		break;
-	case KEY_UP:
+	case SDLK_UP:
+		if (editingNewCommand)
+		{
+			newCommand = commandField->GetText();
+		}
 		c->PreviousCommand();
 		break;
 	default:
-		Window::DoKeyPress(key, character, shift, ctrl, alt);
+		Window::DoKeyPress(key, scan, repeat, shift, ctrl, alt);
 		break;
 	}
+}
+
+void ConsoleView::DoTextInput(String text)
+{
+	if (text == "~")
+		doClose = false;
+	if (!doClose)
+		Window::DoTextInput(text);
 }
 
 void ConsoleView::NotifyPreviousCommandsChanged(ConsoleModel * sender)
@@ -84,19 +99,38 @@ void ConsoleView::NotifyPreviousCommandsChanged(ConsoleModel * sender)
 
 void ConsoleView::NotifyCurrentCommandChanged(ConsoleModel * sender)
 {
-	commandField->SetText(sender->GetCurrentCommand().Command);
+	bool oldEditingNewCommand = editingNewCommand;
+	editingNewCommand = sender->GetCurrentCommandIndex() >= sender->GetPreviousCommands().size();
+	if (!oldEditingNewCommand && editingNewCommand)
+	{
+		commandField->SetText(newCommand);
+	}
+	else
+	{
+		commandField->SetText(sender->GetCurrentCommand().Command);
+	}
 	commandField->SetDisplayText(c->FormatCommand(commandField->GetText()));
 }
 
 
 void ConsoleView::OnDraw()
 {
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	g->fillrect(Position.X, Position.Y, Size.X, Size.Y, 0, 0, 0, 110);
 	g->draw_line(Position.X, Position.Y+Size.Y-16, Position.X+Size.X, Position.Y+Size.Y-16, 255, 255, 255, 160);
 	g->draw_line(Position.X, Position.Y+Size.Y, Position.X+Size.X, Position.Y+Size.Y, 255, 255, 255, 200);
 }
 
-ConsoleView::~ConsoleView() {
+void ConsoleView::OnTick(float dt)
+{
+	if (doClose)
+	{
+		c->CloseConsole();
+		doClose = false;
+	}
+}
+
+ConsoleView::~ConsoleView()
+{
 }
 

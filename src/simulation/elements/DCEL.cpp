@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_DCEL PT_DCEL 138
-Element_DCEL::Element_DCEL()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_DCEL()
 {
 	Identifier = "DEFAULT_PT_DCEL";
 	Name = "DCEL";
@@ -26,7 +29,6 @@ Element_DCEL::Element_DCEL()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 251;
 	Description = "Decelerator, slows down nearby elements.";
 
@@ -41,12 +43,11 @@ Element_DCEL::Element_DCEL()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_DCEL::update;
-	Graphics = &Element_DCEL::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_DCEL static int update(UPDATE_FUNC_ARGS)
-int Element_DCEL::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	float multiplier = 1.0f/1.1f;
@@ -64,26 +65,19 @@ int Element_DCEL::update(UPDATE_FUNC_ARGS)
 					r = sim->photons[y+ry][x+rx];
 				if (!r)
 					continue;
-				if (sim->elements[r&0xFF].Properties & (TYPE_PART | TYPE_LIQUID | TYPE_GAS | TYPE_ENERGY))
+				if (sim->elements[TYP(r)].Properties & (TYPE_PART | TYPE_LIQUID | TYPE_GAS | TYPE_ENERGY))
 				{
-					parts[r>>8].vx *= multiplier;
-					parts[r>>8].vy *= multiplier;
+					parts[ID(r)].vx *= multiplier;
+					parts[ID(r)].vy *= multiplier;
 					parts[i].tmp = 1;
 				}
 			}
 	return 0;
 }
 
-
-
-//#TPT-Directive ElementHeader Element_DCEL static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_DCEL::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	if(cpart->tmp)
 		*pixel_mode |= PMODE_GLOW;
 	return 0;
 }
-
-
-Element_DCEL::~Element_DCEL() {}

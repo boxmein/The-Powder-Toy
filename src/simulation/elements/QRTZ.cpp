@@ -1,6 +1,10 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_QRTZ PT_QRTZ 132
-Element_QRTZ::Element_QRTZ()
+#include "simulation/ElementCommon.h"
+
+int Element_QRTZ_update(UPDATE_FUNC_ARGS);
+int Element_QRTZ_graphics(GRAPHICS_FUNC_ARGS);
+static void create(ELEMENT_CREATE_FUNC_ARGS);
+
+void Element::Element_QRTZ()
 {
 	Identifier = "DEFAULT_PT_QRTZ";
 	Name = "QRTZ";
@@ -26,7 +30,6 @@ Element_QRTZ::Element_QRTZ()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+273.15f;
 	HeatConduct = 3;
 	Description = "Quartz, breakable mineral. Conducts but becomes brittle at lower temperatures.";
 
@@ -41,12 +44,12 @@ Element_QRTZ::Element_QRTZ()
 	HighTemperature = 2573.15f;
 	HighTemperatureTransition = PT_LAVA;
 
-	Update = &Element_QRTZ::update;
-	Graphics = &Element_QRTZ::graphics;
+	Update = &Element_QRTZ_update;
+	Graphics = &Element_QRTZ_graphics;
+	Create = &create;
 }
 
-//#TPT-Directive ElementHeader Element_QRTZ static int update(UPDATE_FUNC_ARGS)
-int Element_QRTZ::update(UPDATE_FUNC_ARGS)
+int Element_QRTZ_update(UPDATE_FUNC_ARGS)
 {
 	int r, tmp, trade, rx, ry, np, t = parts[i].type;
 	if (t == PT_QRTZ)
@@ -70,9 +73,9 @@ int Element_QRTZ::update(UPDATE_FUNC_ARGS)
 					r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					else if ((r&0xFF)==PT_SLTW && !(rand()%500))
+					else if (TYP(r)==PT_SLTW && RNG::Ref().chance(1, 500))
 					{
-						sim->kill_part(r>>8);
+						sim->kill_part(ID(r));
 						parts[i].tmp++;
 					}
 				}
@@ -83,7 +86,7 @@ int Element_QRTZ::update(UPDATE_FUNC_ARGS)
 		int rnd, sry, srx;
 		for (trade = 0; trade < 9; trade++)
 		{
-			rnd = rand()%0x3FF;
+			rnd = RNG::Ref().gen() % 0x3FF;
 			rx = (rnd%5)-2;
 			srx = (rnd%3)-1;
 			rnd >>= 3;
@@ -106,11 +109,11 @@ int Element_QRTZ::update(UPDATE_FUNC_ARGS)
 								// If PQRT is stationary and has started growing particles of QRTZ, the PQRT is basically part of a new QRTZ crystal. So turn it back into QRTZ so that it behaves more like part of the crystal.
 								sim->part_change_type(i,x,y,PT_QRTZ);
 							}
-							if (rand()%2)
+							if (RNG::Ref().chance(1, 2))
 							{
 								parts[np].tmp=-1;//dead qrtz
 							}
-							else if (!parts[i].tmp && !(rand()%15))
+							else if (!parts[i].tmp && RNG::Ref().chance(1, 15))
 							{
 								parts[i].tmp=-1;
 							}
@@ -122,18 +125,18 @@ int Element_QRTZ::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				else if ((r&0xFF)==PT_QRTZ && (parts[i].tmp>parts[r>>8].tmp) && parts[r>>8].tmp>=0)
+				else if (TYP(r)==PT_QRTZ && (parts[i].tmp>parts[ID(r)].tmp) && parts[ID(r)].tmp>=0)
 				{
-					tmp = parts[i].tmp - parts[r>>8].tmp;
+					tmp = parts[i].tmp - parts[ID(r)].tmp;
 					if (tmp ==1)
 					{
-						parts[r>>8].tmp++;
+						parts[ID(r)].tmp++;
 						parts[i].tmp--;
 						break;
 					}
 					if (tmp>0)
 					{
-						parts[r>>8].tmp += tmp/2;
+						parts[ID(r)].tmp += tmp/2;
 						parts[i].tmp -= tmp/2;
 						break;
 					}
@@ -144,9 +147,7 @@ int Element_QRTZ::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_QRTZ static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_QRTZ::graphics(GRAPHICS_FUNC_ARGS)
+int Element_QRTZ_graphics(GRAPHICS_FUNC_ARGS)
  //QRTZ and PQRT
 {
 	int z = (cpart->tmp2 - 5) * 16;//speckles!
@@ -156,5 +157,8 @@ int Element_QRTZ::graphics(GRAPHICS_FUNC_ARGS)
 	return 0;
 }
 
-
-Element_QRTZ::~Element_QRTZ() {}
+static void create(ELEMENT_CREATE_FUNC_ARGS)
+{
+	sim->parts[i].tmp2 = RNG::Ref().between(0, 10);
+	sim->parts[i].pavg[1] = sim->pv[y/CELL][x/CELL];
+}

@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_WIFI PT_WIFI 124
-Element_WIFI::Element_WIFI()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_WIFI()
 {
 	Identifier = "DEFAULT_PT_WIFI";
 	Name = "WIFI";
@@ -26,7 +29,6 @@ Element_WIFI::Element_WIFI()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 0;
 	Description = "Wireless transmitter, transfers spark to any other wifi on the same temperature channel.";
 
@@ -41,12 +43,11 @@ Element_WIFI::Element_WIFI()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_WIFI::update;
-	Graphics = &Element_WIFI::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_WIFI static int update(UPDATE_FUNC_ARGS)
-int Element_WIFI::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	parts[i].tmp = (int)((parts[i].temp-73.15f)/100+1);
@@ -63,37 +64,30 @@ int Element_WIFI::update(UPDATE_FUNC_ARGS)
 				// wireless[][1] - whether channel should be active on next frame
 				if (sim->wireless[parts[i].tmp][0])
 				{
-					if (((r&0xFF)==PT_NSCN||(r&0xFF)==PT_PSCN||(r&0xFF)==PT_INWR)&&parts[r>>8].life==0 && sim->wireless[parts[i].tmp][0])
+					if ((TYP(r)==PT_NSCN||TYP(r)==PT_PSCN||TYP(r)==PT_INWR)&&parts[ID(r)].life==0 && sim->wireless[parts[i].tmp][0])
 					{
-						parts[r>>8].ctype = r&0xFF;
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_SPRK);
-						parts[r>>8].life = 4;
+						parts[ID(r)].ctype = TYP(r);
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_SPRK);
+						parts[ID(r)].life = 4;
 					}
 				}
-				else
+				if (TYP(r)==PT_SPRK && parts[ID(r)].ctype!=PT_NSCN && parts[ID(r)].life>=3)
 				{
-					if ((r&0xFF)==PT_SPRK && parts[r>>8].ctype!=PT_NSCN && parts[r>>8].life>=3)
-					{
-						sim->wireless[parts[i].tmp][1] = 1;
-						sim->ISWIRE = 2;
-					}
+					sim->wireless[parts[i].tmp][1] = 1;
+					sim->ISWIRE = 2;
 				}
 			}
 	return 0;
 }
 
-#define FREQUENCY 0.0628f
+constexpr float FREQUENCY = 0.0628f;
 
-//#TPT-Directive ElementHeader Element_WIFI static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_WIFI::graphics(GRAPHICS_FUNC_ARGS)
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	int q = (int)((cpart->temp-73.15f)/100+1);
-	*colr = sin(FREQUENCY*q + 0) * 127 + 128;
-	*colg = sin(FREQUENCY*q + 2) * 127 + 128;
-	*colb = sin(FREQUENCY*q + 4) * 127 + 128;
+	*colr = int(sin(FREQUENCY*q + 0) * 127 + 128);
+	*colg = int(sin(FREQUENCY*q + 2) * 127 + 128);
+	*colb = int(sin(FREQUENCY*q + 4) * 127 + 128);
 	*pixel_mode |= EFFECT_DBGLINES;
 	return 0;
 }
-
-
-Element_WIFI::~Element_WIFI() {}

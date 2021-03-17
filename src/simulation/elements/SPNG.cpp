@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_SPNG PT_SPNG 90
-Element_SPNG::Element_SPNG()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_SPNG()
 {
 	Identifier = "DEFAULT_PT_SPNG";
 	Name = "SPNG";
@@ -26,7 +29,6 @@ Element_SPNG::Element_SPNG()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f +273.15f;
 	HeatConduct = 251;
 	Description = "Sponge, absorbs water. Is not a moving solid.";
 
@@ -41,12 +43,11 @@ Element_SPNG::Element_SPNG()
 	HighTemperature = 2730.0f;
 	HighTemperatureTransition = PT_FIRE;
 
-	Update = &Element_SPNG::update;
-	Graphics = &Element_SPNG::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_SPNG static int update(UPDATE_FUNC_ARGS)
-int Element_SPNG::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, trade, rx, ry, tmp, np;
 	int limit = 50;
@@ -58,39 +59,39 @@ int Element_SPNG::update(UPDATE_FUNC_ARGS)
 				if (BOUNDS_CHECK && (rx || ry))
 				{
 					r = pmap[y+ry][x+rx];
-					switch (r&0xFF)
+					switch TYP(r)
 					{
 					case PT_WATR:
 					case PT_DSTW:
 					case PT_FRZW:
-						if (parts[i].life<limit && 500>rand()%absorbChanceDenom)
+						if (parts[i].life<limit && RNG::Ref().chance(500, absorbChanceDenom))
 						{
 							parts[i].life++;
-							sim->kill_part(r>>8);
+							sim->kill_part(ID(r));
 						}
 						break;
 					case PT_SLTW:
-						if (parts[i].life<limit && 50>rand()%absorbChanceDenom)
+						if (parts[i].life<limit && RNG::Ref().chance(50, absorbChanceDenom))
 						{
 							parts[i].life++;
-							if (rand()%4)
-								sim->kill_part(r>>8);
+							if (RNG::Ref().chance(3, 4))
+								sim->kill_part(ID(r));
 							else
-								sim->part_change_type(r>>8, x+rx, y+ry, PT_SALT);
+								sim->part_change_type(ID(r), x+rx, y+ry, PT_SALT);
 						}
 						break;
 					case PT_CBNW:
-						if (parts[i].life<limit && 100>rand()%absorbChanceDenom)
+						if (parts[i].life<limit && RNG::Ref().chance(100, absorbChanceDenom))
 						{
 							parts[i].life++;
-							sim->part_change_type(r>>8, x+rx, y+ry, PT_CO2);
+							sim->part_change_type(ID(r), x+rx, y+ry, PT_CO2);
 						}
 						break;
 					case PT_PSTE:
-						if (parts[i].life<limit && 20>rand()%absorbChanceDenom)
+						if (parts[i].life<limit && RNG::Ref().chance(20, absorbChanceDenom))
 						{
 							parts[i].life++;
-							sim->create_part(r>>8, x+rx, y+ry, PT_CLST);
+							sim->create_part(ID(r), x+rx, y+ry, PT_CLST);
 						}
 						break;
 					default:
@@ -112,25 +113,25 @@ int Element_SPNG::update(UPDATE_FUNC_ARGS)
 				}
 	for ( trade = 0; trade<9; trade ++)
 	{
-		rx = rand()%5-2;
-		ry = rand()%5-2;
+		rx = RNG::Ref().between(-2, 2);
+		ry = RNG::Ref().between(-2, 2);
 		if (BOUNDS_CHECK && (rx || ry))
 		{
 			r = pmap[y+ry][x+rx];
 			if (!r)
 				continue;
-			if ((r&0xFF)==PT_SPNG&&(parts[i].life>parts[r>>8].life)&&parts[i].life>0)//diffusion
+			if (TYP(r)==PT_SPNG&&(parts[i].life>parts[ID(r)].life)&&parts[i].life>0)//diffusion
 			{
-				tmp = parts[i].life - parts[r>>8].life;
+				tmp = parts[i].life - parts[ID(r)].life;
 				if (tmp ==1)
 				{
-					parts[r>>8].life ++;
+					parts[ID(r)].life ++;
 					parts[i].life --;
 					trade = 9;
 				}
 				else if (tmp>0)
 				{
-					parts[r>>8].life += tmp/2;
+					parts[ID(r)].life += tmp/2;
 					parts[i].life -= tmp/2;
 					trade = 9;
 				}
@@ -147,13 +148,13 @@ int Element_SPNG::update(UPDATE_FUNC_ARGS)
 					r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					if ((r&0xFF)==PT_FIRE)
+					if (TYP(r)==PT_FIRE)
 					{
 						tmp++;
-						if (parts[r>>8].life>60)
-							parts[r>>8].life -= parts[r>>8].life/60;
-						else if (parts[r>>8].life>2)
-							parts[r>>8].life--;
+						if (parts[ID(r)].life>60)
+							parts[ID(r)].life -= parts[ID(r)].life/60;
+						else if (parts[ID(r)].life>2)
+							parts[ID(r)].life--;
 					}
 				}
 	}
@@ -189,10 +190,7 @@ int Element_SPNG::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_SPNG static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_SPNG::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	*colr -= cpart->life*15;
 	*colg -= cpart->life*15;
@@ -205,6 +203,3 @@ int Element_SPNG::graphics(GRAPHICS_FUNC_ARGS)
 		*colb = 20;
 	return 0;
 }
-
-
-Element_SPNG::~Element_SPNG() {}

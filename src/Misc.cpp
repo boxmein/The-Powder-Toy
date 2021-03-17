@@ -1,105 +1,13 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <cmath>
-#include "Config.h"
 #include "Misc.h"
+
+#include "Config.h"
 #include "icondoc.h"
 
-//Signum function
-int isign(float i) //TODO: INline or macro
-{
-	if (i<0)
-		return -1;
-	if (i>0)
-		return 1;
-	return 0;
-}
+#include <cstring>
+#include <sys/types.h>
+#include <cmath>
 
-unsigned clamp_flt(float f, float min, float max) //TODO: Also inline/macro
-{
-	if (f<min)
-		return 0;
-	if (f>max)
-		return 255;
-	return (int)(255.0f*(f-min)/(max-min));
-}
-
-float restrict_flt(float f, float min, float max) //TODO Inline or macro or something
-{
-	if (f<min)
-		return min;
-	if (f>max)
-		return max;
-	return f;
-}
-
-char *mystrdup(const char *s)
-{
-	char *x;
-	if (s)
-	{
-		x = (char*)malloc(strlen(s)+1);
-		strcpy(x, s);
-		return x;
-	}
-	return NULL;
-}
-
-void strlist_add(struct strlist **list, char *str)
-{
-	struct strlist *item = (struct strlist*)malloc(sizeof(struct strlist));
-	item->str = mystrdup(str);
-	item->next = *list;
-	*list = item;
-}
-
-int strlist_find(struct strlist **list, char *str)
-{
-	struct strlist *item;
-	for (item=*list; item; item=item->next)
-		if (!strcmp(item->str, str))
-			return 1;
-	return 0;
-}
-
-void strlist_free(struct strlist **list)
-{
-	struct strlist *item;
-	while (*list)
-	{
-		item = *list;
-		*list = (*list)->next;
-		free(item);
-	}
-}
-
-void save_string(FILE *f, char *str)
-{
-	int li = strlen(str);
-	unsigned char lb[2];
-	lb[0] = li;
-	lb[1] = li >> 8;
-	fwrite(lb, 2, 1, f);
-	fwrite(str, li, 1, f);
-}
-
-int load_string(FILE *f, char *str, int max)
-{
-	int li;
-	unsigned char lb[2];
-	fread(lb, 2, 1, f);
-	li = lb[0] | (lb[1] << 8);
-	if (li > max)
-	{
-		str[0] = 0;
-		return 1;
-	}
-	fread(str, li, 1, f);
-	str[li] = 0;
-	return 0;
-}
+#include "common/tpt-minmax.h"
 
 const static char hex[] = "0123456789ABCDEF";
 void strcaturl(char *dst, char *src)
@@ -155,8 +63,13 @@ void *file_load(char *fn, int *size)
 		fclose(f);
 		return NULL;
 	}
-	fread(s, *size, 1, f);
+	int readsize = fread(s, *size, 1, f);
 	fclose(f);
+	if (readsize != 1)
+	{
+		free(s);
+		return NULL;
+	}
 	return s;
 }
 
@@ -273,10 +186,10 @@ void RGB_to_HSV(int r,int g,int b,int *h,int *s,int *v)//convert 0-255 RGB value
 	rr = r/255.0f;//normalize values
 	gg = g/255.0f;
 	bb = b/255.0f;
-	a = fmin(rr,gg);
-	a = fmin(a,bb);
-	x = fmax(rr,gg);
-	x = fmax(x,bb);
+	a = std::min(rr,gg);
+	a = std::min(a,bb);
+	x = std::max(rr,gg);
+	x = std::max(x,bb);
 	if (a==x)//greyscale
 	{
 		*h = 0;
@@ -286,7 +199,7 @@ void RGB_to_HSV(int r,int g,int b,int *h,int *s,int *v)//convert 0-255 RGB value
 	else
 	{
  		c = (rr==a) ? gg-bb : ((bb==a) ? rr-gg : bb-rr);
- 		d = (rr==a) ? 3 : ((bb==a) ? 1 : 5);
+ 		d = (rr==a) ? 3.f : ((bb==a) ? 1.f : 5.f);
  		*h = (int)(60.0*(d - c/(x - a)));
  		*s = (int)(255.0*((x - a)/x));
  		*v = (int)(255.0*x);

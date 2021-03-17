@@ -1,6 +1,12 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_NEUT PT_NEUT 18
-Element_NEUT::Element_NEUT()
+#include "simulation/ElementCommon.h"
+
+int Element_FIRE_update(UPDATE_FUNC_ARGS);
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+static void create(ELEMENT_CREATE_FUNC_ARGS);
+static int DeutExplosion(Simulation * sim, int n, int x, int y, float temp, int t);
+
+void Element::Element_NEUT()
 {
 	Identifier = "DEFAULT_PT_NEUT";
 	Name = "NEUT";
@@ -26,7 +32,7 @@ Element_NEUT::Element_NEUT()
 
 	Weight = -1;
 
-	Temperature = R_TEMP+4.0f	+273.15f;
+	DefaultProperties.temp = R_TEMP + 4.0f + 273.15f;
 	HeatConduct = 60;
 	Description = "Neutrons. Interact with matter in odd ways.";
 
@@ -41,128 +47,138 @@ Element_NEUT::Element_NEUT()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_NEUT::update;
-	Graphics = &Element_NEUT::graphics;
+	Update = &update;
+	Graphics = &graphics;
+	Create = &create;
 }
 
-//#TPT-Directive ElementHeader Element_NEUT static int update(UPDATE_FUNC_ARGS)
-int Element_NEUT::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
-	int pressureFactor = 3 + (int)sim->pv[y/CELL][x/CELL];
+	unsigned int pressureFactor = 3 + (int)sim->pv[y/CELL][x/CELL];
 	for (rx=-1; rx<2; rx++)
 		for (ry=-1; ry<2; ry++)
 			if (BOUNDS_CHECK)
 			{
 				r = pmap[y+ry][x+rx];
-				switch (r&0xFF)
+				switch (TYP(r))
 				{
 				case PT_WATR:
-					if (3>(rand()%20))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_DSTW);
+					if (RNG::Ref().chance(3, 20))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_DSTW);
 				case PT_ICEI:
 				case PT_SNOW:
-					parts[i].vx *= 0.995;
-					parts[i].vy *= 0.995;
+					parts[i].vx *= 0.995f;
+					parts[i].vy *= 0.995f;
 					break;
 				case PT_PLUT:
-					if (pressureFactor>(rand()%1000))
+					if (RNG::Ref().chance(pressureFactor, 1000))
 					{
-						if (!(rand()%3))
+						if (RNG::Ref().chance(1, 3))
 						{
-							sim->create_part(r>>8, x+rx, y+ry, rand()%3 ? PT_LAVA : PT_URAN);
-							parts[r>>8].temp = MAX_TEMP;
-							if (parts[r>>8].type==PT_LAVA) {
-								parts[r>>8].tmp = 100;
-								parts[r>>8].ctype = PT_PLUT;
+							sim->create_part(ID(r), x+rx, y+ry, RNG::Ref().chance(2, 3) ? PT_LAVA : PT_URAN);
+							parts[ID(r)].temp = MAX_TEMP;
+							if (parts[ID(r)].type==PT_LAVA) {
+								parts[ID(r)].tmp = 100;
+								parts[ID(r)].ctype = PT_PLUT;
 							}
 						}
 						else
 						{
-							sim->create_part(r>>8, x+rx, y+ry, PT_NEUT);
-							parts[r>>8].vx = 0.25f*parts[r>>8].vx + parts[i].vx;
-							parts[r>>8].vy = 0.25f*parts[r>>8].vy + parts[i].vy;
+							sim->create_part(ID(r), x+rx, y+ry, PT_NEUT);
+							parts[ID(r)].vx = 0.25f*parts[ID(r)].vx + parts[i].vx;
+							parts[ID(r)].vy = 0.25f*parts[ID(r)].vy + parts[i].vy;
 						}
 						sim->pv[y/CELL][x/CELL] += 10.0f * CFDS; //Used to be 2, some people said nukes weren't powerful enough
-						Element_FIRE::update(UPDATE_FUNC_SUBCALL_ARGS);
+						Element_FIRE_update(UPDATE_FUNC_SUBCALL_ARGS);
 					}
 					break;
 #ifdef SDEUT
 				case PT_DEUT:
-					if ((pressureFactor+1+(parts[r>>8].life/100))>(rand()%1000))
+					if (RNG::Ref().chance(pressureFactor + 1 + (parts[ID(r)].life/100), 1000))
 					{
-						DeutExplosion(sim, parts[r>>8].life, x+rx, y+ry, restrict_flt(parts[r>>8].temp + parts[r>>8].life*500.0f, MIN_TEMP, MAX_TEMP), PT_NEUT);
-						sim->kill_part(r>>8);
+						DeutExplosion(sim, parts[ID(r)].life, x+rx, y+ry, restrict_flt(parts[ID(r)].temp + parts[ID(r)].life*500.0f, MIN_TEMP, MAX_TEMP), PT_NEUT);
+						sim->kill_part(ID(r));
 					}
 					break;
 #else
 				case PT_DEUT:
-					if ((pressureFactor+1)>(rand()%1000))
+					if (RNG::Ref().chance(pressureFactor+1, 1000))
 					{
-						create_part(r>>8, x+rx, y+ry, PT_NEUT);
-						parts[r>>8].vx = 0.25f*parts[r>>8].vx + parts[i].vx;
-						parts[r>>8].vy = 0.25f*parts[r>>8].vy + parts[i].vy;
-						parts[r>>8].life --;
-						parts[r>>8].temp = restrict_flt(parts[r>>8].temp + parts[r>>8].life*17.0f, MIN_TEMP, MAX_TEMP);
+						create_part(ID(r), x+rx, y+ry, PT_NEUT);
+						parts[ID(r)].vx = 0.25f*parts[ID(r)].vx + parts[i].vx;
+						parts[ID(r)].vy = 0.25f*parts[ID(r)].vy + parts[i].vy;
+						parts[ID(r)].life --;
+						parts[ID(r)].temp = restrict_flt(parts[ID(r)].temp + parts[ID(r)].life*17.0f, MIN_TEMP, MAX_TEMP);
 						pv[y/CELL][x/CELL] += 6.0f * CFDS;
 
 					}
 					break;
 #endif
 				case PT_GUNP:
-					if (3>(rand()%200))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_DUST);
+					if (RNG::Ref().chance(3, 200))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_DUST);
 					break;
 				case PT_DYST:
-					if (3>(rand()%200))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_YEST);
+					if (RNG::Ref().chance(3, 200))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_YEST);
 					break;
 				case PT_YEST:
-					sim->part_change_type(r>>8,x+rx,y+ry,PT_DYST);
+					sim->part_change_type(ID(r),x+rx,y+ry,PT_DYST);
 					break;
 				case PT_PLEX:
-					if (3>(rand()%200))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_GOO);
+					if (RNG::Ref().chance(3, 200))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_GOO);
 					break;
 				case PT_NITR:
-					if (3>(rand()%200))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_DESL);
+					if (RNG::Ref().chance(3, 200))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_DESL);
 					break;
 				case PT_PLNT:
-					if (!(rand()%20))
-						sim->create_part(r>>8, x+rx, y+ry, PT_WOOD);
+					if (RNG::Ref().chance(1, 20))
+						sim->create_part(ID(r), x+rx, y+ry, PT_WOOD);
 					break;
 				case PT_DESL:
 				case PT_OIL:
-					if (3>(rand()%200))
-						sim->part_change_type(r>>8,x+rx,y+ry,PT_GAS);
+					if (RNG::Ref().chance(3, 200))
+						sim->part_change_type(ID(r),x+rx,y+ry,PT_GAS);
 					break;
 				case PT_COAL:
-					if (!(rand()%20))
-						sim->create_part(r>>8, x+rx, y+ry, PT_WOOD);
+					if (RNG::Ref().chance(1, 20))
+						sim->create_part(ID(r), x+rx, y+ry, PT_WOOD);
+					break;
+				case PT_BCOL:
+					if (RNG::Ref().chance(1, 20))
+						sim->create_part(ID(r), x+rx, y+ry, PT_SAWD);
 					break;
 				case PT_DUST:
-					if (!(rand()%20))
-						sim->part_change_type(r>>8, x+rx, y+ry, PT_FWRK);
+					if (RNG::Ref().chance(1, 20))
+						sim->part_change_type(ID(r), x+rx, y+ry, PT_FWRK);
 					break;
 				case PT_FWRK:
-					if (!(rand()%20))
-						parts[r>>8].ctype = PT_DUST;
+					if (RNG::Ref().chance(1, 20))
+						parts[ID(r)].ctype = PT_DUST;
 					break;
 				case PT_ACID:
-					if (!(rand()%20))
-						sim->create_part(r>>8, x+rx, y+ry, PT_ISOZ);
+					if (RNG::Ref().chance(1, 20))
+						sim->create_part(ID(r), x+rx, y+ry, PT_ISOZ);
 					break;
 				case PT_TTAN:
-					if (!(rand()%20))
+					if (RNG::Ref().chance(1, 20))
 					{
 						sim->kill_part(i);
 						return 1;
 					}
 					break;
 				case PT_EXOT:
-					if (!(rand()%20))
-						parts[r>>8].life = 1500;
+					if (RNG::Ref().chance(1, 20))
+						parts[ID(r)].life = 1500;
+					break;
+				case PT_RFRG:
+					if (RNG::Ref().chance(1, 2))
+						sim->create_part(ID(r), x+rx, y+ry, PT_GAS);
+					else
+						sim->create_part(ID(r), x+rx, y+ry, PT_CAUS);
 					break;
 				default:
 					break;
@@ -171,11 +187,7 @@ int Element_NEUT::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-
-//#TPT-Directive ElementHeader Element_NEUT static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_NEUT::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	*firea = 120;
 	*firer = 10;
@@ -186,8 +198,16 @@ int Element_NEUT::graphics(GRAPHICS_FUNC_ARGS)
 	return 1;
 }
 
-//#TPT-Directive ElementHeader Element_NEUT static int DeutExplosion(Simulation * sim, int n, int x, int y, float temp, int t)
-int Element_NEUT::DeutExplosion(Simulation * sim, int n, int x, int y, float temp, int t)//testing a new deut create part
+static void create(ELEMENT_CREATE_FUNC_ARGS)
+{
+	float r = RNG::Ref().between(128, 255) / 127.0f;
+	float a = RNG::Ref().between(0, 359) * 3.14159f / 180.0f;
+	sim->parts[i].life = RNG::Ref().between(480, 959);
+	sim->parts[i].vx = r * cosf(a);
+	sim->parts[i].vy = r * sinf(a);
+}
+
+static int DeutExplosion(Simulation * sim, int n, int x, int y, float temp, int t)//testing a new deut create part
 {
 	int i;
 	n = (n/50);
@@ -207,5 +227,3 @@ int Element_NEUT::DeutExplosion(Simulation * sim, int n, int x, int y, float tem
 	sim->pv[y/CELL][x/CELL] += (6.0f * CFDS)*n;
 	return 0;
 }
-
-Element_NEUT::~Element_NEUT() {}

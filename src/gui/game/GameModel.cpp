@@ -1,22 +1,39 @@
-#include "gui/interface/Engine.h"
 #include "GameModel.h"
+
 #include "GameView.h"
-#include "simulation/Simulation.h"
-#include "simulation/Air.h"
-#include "ToolClasses.h"
-#include "graphics/Renderer.h"
-#include "gui/interface/Point.h"
-#include "Brush.h"
+#include "GameController.h"
+
+#include "simulation/ToolClasses.h"
 #include "EllipseBrush.h"
 #include "TriangleBrush.h"
 #include "BitmapBrush.h"
-#include "client/Client.h"
-#include "client/GameSave.h"
-#include "client/SaveFile.h"
-#include "gui/game/DecorationTool.h"
 #include "QuickOptions.h"
 #include "GameModelException.h"
 #include "Format.h"
+#include "Menu.h"
+#include "Favorite.h"
+#include "Notification.h"
+
+#include "client/Client.h"
+#include "client/GameSave.h"
+#include "client/SaveFile.h"
+#include "client/SaveInfo.h"
+
+#include "graphics/Renderer.h"
+
+#include "simulation/Air.h"
+#include "simulation/Simulation.h"
+#include "simulation/Snapshot.h"
+#include "simulation/Gravity.h"
+#include "simulation/ElementGraphics.h"
+#include "simulation/ElementClasses.h"
+#include "simulation/GOLString.h"
+
+#include "gui/game/DecorationTool.h"
+#include "gui/interface/Engine.h"
+
+#include <iostream>
+#include <algorithm>
 
 GameModel::GameModel():
 	clipboard(NULL),
@@ -27,10 +44,13 @@ GameModel::GameModel():
 	currentFile(NULL),
 	currentUser(0, ""),
 	toolStrength(1.0f),
+	redoHistory(NULL),
+	historyPosition(0),
 	activeColourPreset(0),
 	colourSelector(false),
 	colour(255, 0, 0, 255),
-	edgeMode(0)
+	edgeMode(0),
+	decoSpace(0)
 {
 	sim = new Simulation();
 	ren = new Renderer(ui::Engine::Ref().g, sim);
@@ -75,49 +95,32 @@ GameModel::GameModel():
 	//Load config into simulation
 	edgeMode = Client::Ref().GetPrefInteger("Simulation.EdgeMode", 0);
 	sim->SetEdgeMode(edgeMode);
+	decoSpace = Client::Ref().GetPrefInteger("Simulation.DecoSpace", 0);
+	sim->SetDecoSpace(decoSpace);
 	int ngrav_enable = Client::Ref().GetPrefInteger("Simulation.NewtonianGravity", 0);
 	if (ngrav_enable)
 		sim->grav->start_grav_async();
 	sim->aheat_enable =  Client::Ref().GetPrefInteger("Simulation.AmbientHeat", 0);
 	sim->pretty_powder =  Client::Ref().GetPrefInteger("Simulation.PrettyPowder", 0);
 
+	Favorite::Ref().LoadFavoritesFromPrefs();
+
 	//Load last user
-	if(Client::Ref().GetAuthUser().ID)
+	if(Client::Ref().GetAuthUser().UserID)
 	{
 		currentUser = Client::Ref().GetAuthUser();
 	}
 
 	BuildMenus();
 
-	//Set default brush palette
-	brushList.push_back(new EllipseBrush(ui::Point(4, 4)));
-	brushList.push_back(new Brush(ui::Point(4, 4)));
-	brushList.push_back(new TriangleBrush(ui::Point(4, 4)));
-
-	//Load more from brushes folder
-	std::vector<string> brushFiles = Client::Ref().DirectorySearch(BRUSH_DIR, "", ".ptb");
-	for (size_t i = 0; i < brushFiles.size(); i++)
-	{
-		std::vector<unsigned char> brushData = Client::Ref().ReadFile(brushFiles[i]);
-		if(!brushData.size())
-		{
-			std::cout << "Brushes: Skipping " << brushFiles[i] << ". Could not open" << std::endl;
-			continue;
-		}
-		size_t dimension = std::sqrt((float)brushData.size());
-		if (dimension * dimension != brushData.size())
-		{
-			std::cout << "Brushes: Skipping " << brushFiles[i] << ". Invalid bitmap size" << std::endl;
-			continue;
-		}
-		brushList.push_back(new BitmapBrush(brushData, ui::Point(dimension, dimension)));
-	}
+	perfectCircle = Client::Ref().GetPrefBool("PerfectCircleBrush", true);
+	BuildBrushList();
 
 	//Set default decoration colour
-	unsigned char colourR = min(Client::Ref().GetPrefInteger("Decoration.Red", 200), 255);
-	unsigned char colourG = min(Client::Ref().GetPrefInteger("Decoration.Green", 100), 255);
-	unsigned char colourB = min(Client::Ref().GetPrefInteger("Decoration.Blue", 50), 255);
-	unsigned char colourA = min(Client::Ref().GetPrefInteger("Decoration.Alpha", 255), 255);
+	unsigned char colourR = std::min(Client::Ref().GetPrefInteger("Decoration.Red", 200), 255);
+	unsigned char colourG = std::min(Client::Ref().GetPrefInteger("Decoration.Green", 100), 255);
+	unsigned char colourB = std::min(Client::Ref().GetPrefInteger("Decoration.Blue", 50), 255);
+	unsigned char colourA = std::min(Client::Ref().GetPrefInteger("Decoration.Alpha", 255), 255);
 
 	SetColourSelectorColour(ui::Colour(colourR, colourG, colourB, colourA));
 
@@ -129,6 +132,14 @@ GameModel::GameModel():
 	colourPresets.push_back(ui::Colour(0, 255, 0));
 	colourPresets.push_back(ui::Colour(0, 0, 255));
 	colourPresets.push_back(ui::Colour(0, 0, 0));
+
+	undoHistoryLimit = Client::Ref().GetPrefInteger("Simulation.UndoHistoryLimit", 5);
+	// cap due to memory usage (this is about 3.4GB of RAM)
+	if (undoHistoryLimit > 200)
+		undoHistoryLimit = 200;
+
+	mouseClickRequired = Client::Ref().GetPrefBool("MouseClickRequired", false);
+	includePressure = Client::Ref().GetPrefBool("Simulation.IncludePressure", true);
 }
 
 GameModel::~GameModel()
@@ -146,18 +157,28 @@ GameModel::~GameModel()
 	Client::Ref().SetPref("Renderer.Decorations", (bool)ren->decorations_enable);
 	Client::Ref().SetPref("Renderer.DebugMode", ren->debugLines); //These two should always be equivalent, even though they are different things
 
-	Client::Ref().SetPref("Simulation.EdgeMode", sim->edgeMode);
-	Client::Ref().SetPref("Simulation.NewtonianGravity", sim->grav->ngrav_enable);
+	Client::Ref().SetPref("Simulation.EdgeMode", edgeMode);
+	Client::Ref().SetPref("Simulation.NewtonianGravity", sim->grav->IsEnabled());
 	Client::Ref().SetPref("Simulation.AmbientHeat", sim->aheat_enable);
 	Client::Ref().SetPref("Simulation.PrettyPowder", sim->pretty_powder);
+	Client::Ref().SetPref("Simulation.DecoSpace", sim->deco_space);
 
 	Client::Ref().SetPref("Decoration.Red", (int)colour.Red);
 	Client::Ref().SetPref("Decoration.Green", (int)colour.Green);
 	Client::Ref().SetPref("Decoration.Blue", (int)colour.Blue);
 	Client::Ref().SetPref("Decoration.Alpha", (int)colour.Alpha);
 
+	Client::Ref().SetPref("Simulation.UndoHistoryLimit", undoHistoryLimit);
+
+	Client::Ref().SetPref("MouseClickRequired", mouseClickRequired);
+	Client::Ref().SetPref("Simulation.IncludePressure", includePressure);
+
+	Favorite::Ref().SaveFavoritesToPrefs();
+
 	for (size_t i = 0; i < menuList.size(); i++)
 	{
+		if (i == SC_FAVORITES)
+			menuList[i]->ClearTools();
 		delete menuList[i];
 	}
 	for (std::vector<Tool*>::iterator iter = extraElementTools.begin(), end = extraElementTools.end(); iter != end; ++iter)
@@ -174,6 +195,7 @@ GameModel::~GameModel()
 	delete clipboard;
 	delete currentSave;
 	delete currentFile;
+	delete redoHistory;
 	//if(activeTools)
 	//	delete[] activeTools;
 }
@@ -184,7 +206,7 @@ void GameModel::UpdateQuickOptions()
 	{
 		QuickOption * option = *iter;
 		option->Update();
-	}	
+	}
 }
 
 void GameModel::BuildQuickOptionMenu(GameController * controller)
@@ -212,7 +234,7 @@ void GameModel::BuildMenus()
 	if(activeMenu != -1)
 		lastMenu = activeMenu;
 
-	std::string activeToolIdentifiers[4];
+	ByteString activeToolIdentifiers[4];
 	if(regularToolset[0])
 		activeToolIdentifiers[0] = regularToolset[0]->GetIdentifier();
 	if(regularToolset[1])
@@ -223,9 +245,11 @@ void GameModel::BuildMenus()
 		activeToolIdentifiers[3] = regularToolset[3]->GetIdentifier();
 
 	//Empty current menus
-	for(std::vector<Menu*>::iterator iter = menuList.begin(), end = menuList.end(); iter != end; ++iter)
+	for (size_t i = 0; i < menuList.size(); i++)
 	{
-		delete *iter;
+		if (i == SC_FAVORITES)
+			menuList[i]->ClearTools();
+		delete menuList[i];
 	}
 	menuList.clear();
 	toolList.clear();
@@ -238,9 +262,9 @@ void GameModel::BuildMenus()
 	elementTools.clear();
 
 	//Create menus
-	for(int i = 0; i < SC_TOTAL; i++)
+	for (int i = 0; i < SC_TOTAL; i++)
 	{
-		menuList.push_back(new Menu((const char)sim->msections[i].icon[0], sim->msections[i].name));
+		menuList.push_back(new Menu(sim->msections[i].icon, sim->msections[i].name, sim->msections[i].doshow));
 	}
 
 	//Build menus from Simulation elements
@@ -281,30 +305,84 @@ void GameModel::BuildMenus()
 	//Build menu for GOL types
 	for(int i = 0; i < NGOL; i++)
 	{
-		Tool * tempTool = new ElementTool(PT_LIFE|(i<<8), sim->gmenu[i].name, std::string(sim->gmenu[i].description), PIXR(sim->gmenu[i].colour), PIXG(sim->gmenu[i].colour), PIXB(sim->gmenu[i].colour), "DEFAULT_PT_LIFE_"+std::string(sim->gmenu[i].name));
+		Tool * tempTool = new ElementTool(PT_LIFE|PMAPID(i), builtinGol[i].name, builtinGol[i].description, PIXR(builtinGol[i].colour), PIXG(builtinGol[i].colour), PIXB(builtinGol[i].colour), "DEFAULT_PT_LIFE_"+builtinGol[i].name.ToAscii());
 		menuList[SC_LIFE]->AddTool(tempTool);
+	}
+	{
+		auto customGOLTypes = Client::Ref().GetPrefByteStringArray("CustomGOL.Types");
+		Json::Value validatedCustomLifeTypes(Json::arrayValue);
+		std::vector<Simulation::CustomGOLData> newCustomGol;
+		for (auto gol : customGOLTypes)
+		{
+			auto parts = gol.FromUtf8().PartitionBy(' ');
+			if (parts.size() != 4)
+			{
+				continue;
+			}
+			Simulation::CustomGOLData gd;
+			gd.nameString = parts[0];
+			gd.ruleString = parts[1];
+			auto &colour1String = parts[2];
+			auto &colour2String = parts[3];
+			if (!ValidateGOLName(gd.nameString))
+			{
+				continue;
+			}
+			gd.rule = ParseGOLString(gd.ruleString);
+			if (gd.rule == -1)
+			{
+				continue;
+			}
+			try
+			{
+				gd.colour1 = colour1String.ToNumber<int>();
+				gd.colour2 = colour2String.ToNumber<int>();
+			}
+			catch (std::exception &)
+			{
+				continue;
+			}
+			newCustomGol.push_back(gd);
+			validatedCustomLifeTypes.append(gol);
+		}
+		// All custom rules that fail validation will be removed
+		Client::Ref().SetPref("CustomGOL.Types", validatedCustomLifeTypes);
+		for (auto &gd : newCustomGol)
+		{
+			Tool * tempTool = new ElementTool(PT_LIFE|PMAPID(gd.rule), gd.nameString, "Custom GOL type: " + gd.ruleString, PIXR(gd.colour1), PIXG(gd.colour1), PIXB(gd.colour1), "DEFAULT_PT_LIFECUST_"+gd.nameString.ToAscii(), NULL);
+			menuList[SC_LIFE]->AddTool(tempTool);
+		}
+		sim->SetCustomGOL(newCustomGol);
 	}
 
 	//Build other menus from wall data
 	for(int i = 0; i < UI_WALLCOUNT; i++)
 	{
-		Tool * tempTool = new WallTool(i, "", std::string(sim->wtypes[i].descs), PIXR(sim->wtypes[i].colour), PIXG(sim->wtypes[i].colour), PIXB(sim->wtypes[i].colour), sim->wtypes[i].identifier, sim->wtypes[i].textureGen);
+		Tool * tempTool = new WallTool(i, "", sim->wtypes[i].descs, PIXR(sim->wtypes[i].colour), PIXG(sim->wtypes[i].colour), PIXB(sim->wtypes[i].colour), sim->wtypes[i].identifier, sim->wtypes[i].textureGen);
 		menuList[SC_WALL]->AddTool(tempTool);
 		//sim->wtypes[i]
 	}
-	
+
 	//Build menu for tools
 	for (size_t i = 0; i < sim->tools.size(); i++)
 	{
-		Tool * tempTool;
-		tempTool = new Tool(i, sim->tools[i]->Name, sim->tools[i]->Description, PIXR(sim->tools[i]->Colour), PIXG(sim->tools[i]->Colour), PIXB(sim->tools[i]->Colour), sim->tools[i]->Identifier);
+		Tool *tempTool = new Tool(
+			i,
+			sim->tools[i].Name,
+			sim->tools[i].Description,
+			PIXR(sim->tools[i].Colour),
+			PIXG(sim->tools[i].Colour),
+			PIXB(sim->tools[i].Colour),
+			sim->tools[i].Identifier
+		);
 		menuList[SC_TOOL]->AddTool(tempTool);
 	}
 	//Add special sign and prop tools
 	menuList[SC_TOOL]->AddTool(new WindTool(0, "WIND", "Creates air movement.", 64, 64, 64, "DEFAULT_UI_WIND"));
-	menuList[SC_TOOL]->AddTool(new PropertyTool());
+	menuList[SC_TOOL]->AddTool(new PropertyTool(this));
 	menuList[SC_TOOL]->AddTool(new SignTool(this));
 	menuList[SC_TOOL]->AddTool(new SampleTool(this));
+	menuList[SC_LIFE]->AddTool(new GOLTool(this));
 
 	//Add decoration tools to menu
 	menuList[SC_DECO]->AddTool(new DecorationTool(ren, DECO_ADD, "ADD", "Colour blending: Add.", 0, 0, 0, "DEFAULT_DECOR_ADD"));
@@ -320,21 +398,20 @@ void GameModel::BuildMenus()
 	decoToolset[2] = GetToolFromIdentifier("DEFAULT_UI_SAMPLE");
 	decoToolset[3] = GetToolFromIdentifier("DEFAULT_PT_NONE");
 
+	regularToolset[0] = GetToolFromIdentifier(activeToolIdentifiers[0]);
+	regularToolset[1] = GetToolFromIdentifier(activeToolIdentifiers[1]);
+	regularToolset[2] = GetToolFromIdentifier(activeToolIdentifiers[2]);
+	regularToolset[3] = GetToolFromIdentifier(activeToolIdentifiers[3]);
+
 	//Set default tools
-	regularToolset[0] = GetToolFromIdentifier("DEFAULT_PT_DUST");
-	regularToolset[1] = GetToolFromIdentifier("DEFAULT_PT_NONE");
-	regularToolset[2] = GetToolFromIdentifier("DEFAULT_UI_SAMPLE");
-	regularToolset[3] = GetToolFromIdentifier("DEFAULT_PT_NONE");
-
-
-	if(activeToolIdentifiers[0].length())
-		regularToolset[0] = GetToolFromIdentifier(activeToolIdentifiers[0]);
-	if(activeToolIdentifiers[1].length())
-		regularToolset[1] = GetToolFromIdentifier(activeToolIdentifiers[1]);
-	if(activeToolIdentifiers[2].length())
-		regularToolset[2] = GetToolFromIdentifier(activeToolIdentifiers[2]);
-	if(activeToolIdentifiers[3].length())
-		regularToolset[3] = GetToolFromIdentifier(activeToolIdentifiers[3]);
+	if (!regularToolset[0])
+		regularToolset[0] = GetToolFromIdentifier("DEFAULT_PT_DUST");
+	if (!regularToolset[1])
+		regularToolset[1] = GetToolFromIdentifier("DEFAULT_PT_NONE");
+	if (!regularToolset[2])
+		regularToolset[2] = GetToolFromIdentifier("DEFAULT_UI_SAMPLE");
+	if (!regularToolset[3])
+		regularToolset[3] = GetToolFromIdentifier("DEFAULT_PT_NONE");
 
 	lastTool = activeTools[0];
 
@@ -353,26 +430,91 @@ void GameModel::BuildMenus()
 	notifyToolListChanged();
 	notifyActiveToolsChanged();
 	notifyLastToolChanged();
+
+	//Build menu for favorites
+	BuildFavoritesMenu();
 }
 
-Tool * GameModel::GetToolFromIdentifier(std::string identifier)
+void GameModel::BuildFavoritesMenu()
 {
-	for (std::vector<Menu*>::iterator iter = menuList.begin(), end = menuList.end(); iter != end; ++iter)
+	menuList[SC_FAVORITES]->ClearTools();
+
+	std::vector<ByteString> favList = Favorite::Ref().GetFavoritesList();
+	for (size_t i = 0; i < favList.size(); i++)
 	{
-		std::vector<Tool*> menuTools = (*iter)->GetToolList();
-		for (std::vector<Tool*>::iterator titer = menuTools.begin(), tend = menuTools.end(); titer != tend; ++titer)
-		{
-			if (identifier == (*titer)->GetIdentifier())
-				return *titer;
-		}
-	}
-	for (std::vector<Tool*>::iterator iter = extraElementTools.begin(), end = extraElementTools.end(); iter != end; ++iter)
-	{
-		if (identifier == (*iter)->GetIdentifier())
-			return *iter;
+		Tool *tool = GetToolFromIdentifier(favList[i]);
+		if (tool)
+			menuList[SC_FAVORITES]->AddTool(tool);
 	}
 
-	return NULL;
+	if (activeMenu == SC_FAVORITES)
+		toolList = menuList[SC_FAVORITES]->GetToolList();
+
+	notifyMenuListChanged();
+	notifyToolListChanged();
+	notifyActiveToolsChanged();
+	notifyLastToolChanged();
+}
+
+void GameModel::BuildBrushList()
+{
+	bool hasStoredRadius = false;
+	ui::Point radius = ui::Point(0, 0);
+	if (brushList.size())
+	{
+		radius = brushList[currentBrush]->GetRadius();
+		hasStoredRadius = true;
+	}
+	brushList.clear();
+
+	brushList.push_back(new EllipseBrush(ui::Point(4, 4), perfectCircle));
+	brushList.push_back(new Brush(ui::Point(4, 4)));
+	brushList.push_back(new TriangleBrush(ui::Point(4, 4)));
+
+	//Load more from brushes folder
+	std::vector<ByteString> brushFiles = Client::Ref().DirectorySearch(BRUSH_DIR, "", ".ptb");
+	for (size_t i = 0; i < brushFiles.size(); i++)
+	{
+		std::vector<unsigned char> brushData = Client::Ref().ReadFile(brushFiles[i]);
+		if(!brushData.size())
+		{
+			std::cout << "Brushes: Skipping " << brushFiles[i] << ". Could not open" << std::endl;
+			continue;
+		}
+		auto dimension = size_t(std::sqrt(float(brushData.size())));
+		if (dimension * dimension != brushData.size())
+		{
+			std::cout << "Brushes: Skipping " << brushFiles[i] << ". Invalid bitmap size" << std::endl;
+			continue;
+		}
+		brushList.push_back(new BitmapBrush(brushData, ui::Point(dimension, dimension)));
+	}
+
+	if (hasStoredRadius && (size_t)currentBrush < brushList.size())
+		brushList[currentBrush]->SetRadius(radius);
+	notifyBrushChanged();
+}
+
+Tool *GameModel::GetToolFromIdentifier(ByteString const &identifier)
+{
+	for (auto *menu : menuList)
+	{
+		for (auto *tool : menu->GetToolList())
+		{
+			if (identifier == tool->GetIdentifier())
+			{
+				return tool;
+			}
+		}
+	}
+	for (auto *extra : extraElementTools)
+	{
+		if (identifier == extra->GetIdentifier())
+		{
+			return extra;
+		}
+	}
+	return nullptr;
 }
 
 void GameModel::SetEdgeMode(int edgeMode)
@@ -386,13 +528,55 @@ int GameModel::GetEdgeMode()
 	return this->edgeMode;
 }
 
+void GameModel::SetDecoSpace(int decoSpace)
+{
+	sim->SetDecoSpace(decoSpace);
+	this->decoSpace = sim->deco_space;
+}
+
+int GameModel::GetDecoSpace()
+{
+	return this->decoSpace;
+}
+
 std::deque<Snapshot*> GameModel::GetHistory()
 {
 	return history;
 }
+
+unsigned int GameModel::GetHistoryPosition()
+{
+	return historyPosition;
+}
+
 void GameModel::SetHistory(std::deque<Snapshot*> newHistory)
 {
 	history = newHistory;
+}
+
+void GameModel::SetHistoryPosition(unsigned int newHistoryPosition)
+{
+	historyPosition = newHistoryPosition;
+}
+
+Snapshot * GameModel::GetRedoHistory()
+{
+	return redoHistory;
+}
+
+void GameModel::SetRedoHistory(Snapshot * redo)
+{
+	redoHistory = redo;
+}
+
+unsigned int GameModel::GetUndoHistoryLimit()
+{
+	return undoHistoryLimit;
+}
+
+void GameModel::SetUndoHistoryLimit(unsigned int undoHistoryLimit_)
+{
+	undoHistoryLimit = undoHistoryLimit_;
 }
 
 void GameModel::SetVote(int direction)
@@ -417,7 +601,7 @@ Brush * GameModel::GetBrush()
 	return brushList[currentBrush];
 }
 
-vector<Brush*> GameModel::GetBrushList()
+std::vector<Brush*> GameModel::GetBrushList()
 {
 	return brushList;
 }
@@ -488,12 +672,12 @@ void GameModel::SetActiveMenu(int menuID)
 	}
 }
 
-vector<Tool*> GameModel::GetUnlistedTools()
+std::vector<Tool*> GameModel::GetUnlistedTools()
 {
 	return extraElementTools;
 }
 
-vector<Tool*> GameModel::GetToolList()
+std::vector<Tool*> GameModel::GetToolList()
 {
 	return toolList;
 }
@@ -506,9 +690,6 @@ int GameModel::GetActiveMenu()
 //Get an element tool from an element ID
 Tool * GameModel::GetElementTool(int elementID)
 {
-#ifdef DEBUG
-	std::cout << elementID << std::endl;
-#endif
 	for(std::vector<Tool*>::iterator iter = elementTools.begin(), end = elementTools.end(); iter != end; ++iter)
 	{
 		if((*iter)->GetToolID() == elementID)
@@ -528,12 +709,12 @@ void GameModel::SetActiveTool(int selection, Tool * tool)
 	notifyActiveToolsChanged();
 }
 
-vector<QuickOption*> GameModel::GetQuickOptions()
+std::vector<QuickOption*> GameModel::GetQuickOptions()
 {
 	return quickOptions;
 }
 
-vector<Menu*> GameModel::GetMenuList()
+std::vector<Menu*> GameModel::GetMenuList()
 {
 	return menuList;
 }
@@ -543,7 +724,7 @@ SaveInfo * GameModel::GetSave()
 	return currentSave;
 }
 
-void GameModel::SetSave(SaveInfo * newSave)
+void GameModel::SetSave(SaveInfo * newSave, bool invertIncludePressure)
 {
 	if(currentSave != newSave)
 	{
@@ -572,7 +753,28 @@ void GameModel::SetSave(SaveInfo * newSave)
 			sim->grav->stop_grav_async();
 		sim->clear_sim();
 		ren->ClearAccumulation();
-		sim->Load(saveData);
+		if (!sim->Load(saveData, !invertIncludePressure))
+		{
+			// This save was created before logging existed
+			// Add in the correct info
+			if (saveData->authors.size() == 0)
+			{
+				saveData->authors["type"] = "save";
+				saveData->authors["id"] = newSave->id;
+				saveData->authors["username"] = newSave->userName;
+				saveData->authors["title"] = newSave->name.ToUtf8();
+				saveData->authors["description"] = newSave->Description.ToUtf8();
+				saveData->authors["published"] = (int)newSave->Published;
+				saveData->authors["date"] = newSave->updatedDate;
+			}
+			// This save was probably just created, and we didn't know the ID when creating it
+			// Update with the proper ID
+			else if (saveData->authors.get("id", -1) == 0 || saveData->authors.get("id", -1) == -1)
+			{
+				saveData->authors["id"] = newSave->id;
+			}
+			Client::Ref().OverwriteAuthorInfo(saveData->authors);
+		}
 	}
 	notifySaveChanged();
 	UpdateQuickOptions();
@@ -583,7 +785,7 @@ SaveFile * GameModel::GetSaveFile()
 	return currentFile;
 }
 
-void GameModel::SetSaveFile(SaveFile * newSave)
+void GameModel::SetSaveFile(SaveFile * newSave, bool invertIncludePressure)
 {
 	if(currentFile != newSave)
 	{
@@ -606,20 +808,22 @@ void GameModel::SetSaveFile(SaveFile * newSave)
 		sim->legacy_enable = saveData->legacyEnable;
 		sim->water_equal_test = saveData->waterEEnabled;
 		sim->aheat_enable = saveData->aheatEnable;
-		if(saveData->gravityEnable && !sim->grav->ngrav_enable)
+		if(saveData->gravityEnable && !sim->grav->IsEnabled())
 		{
 			sim->grav->start_grav_async();
 		}
-		else if(!saveData->gravityEnable && sim->grav->ngrav_enable)
+		else if(!saveData->gravityEnable && sim->grav->IsEnabled())
 		{
 			sim->grav->stop_grav_async();
 		}
-		sim->SetEdgeMode(0);
 		sim->clear_sim();
 		ren->ClearAccumulation();
-		sim->Load(saveData);
+		if (!sim->Load(saveData, !invertIncludePressure))
+		{
+			Client::Ref().OverwriteAuthorInfo(saveData->authors);
+		}
 	}
-	
+
 	notifySaveChanged();
 	UpdateQuickOptions();
 }
@@ -684,7 +888,7 @@ bool GameModel::MouseInZoom(ui::Point position)
 	ui::Point zoomWindowPosition = GetZoomWindowPosition();
 	ui::Point zoomWindowSize = ui::Point(GetZoomSize()*zoomFactor, GetZoomSize()*zoomFactor);
 
-	if (position.X >= zoomWindowPosition.X && position.X >= zoomWindowPosition.Y && position.X <= zoomWindowPosition.X+zoomWindowSize.X && position.Y <= zoomWindowPosition.Y+zoomWindowSize.Y)
+	if (position.X >= zoomWindowPosition.X && position.Y >= zoomWindowPosition.Y && position.X <= zoomWindowPosition.X+zoomWindowSize.X && position.Y <= zoomWindowPosition.Y+zoomWindowSize.Y)
 		return true;
 	return false;
 }
@@ -698,7 +902,7 @@ ui::Point GameModel::AdjustZoomCoords(ui::Point position)
 	ui::Point zoomWindowPosition = GetZoomWindowPosition();
 	ui::Point zoomWindowSize = ui::Point(GetZoomSize()*zoomFactor, GetZoomSize()*zoomFactor);
 
-	if (position.X >= zoomWindowPosition.X && position.X >= zoomWindowPosition.Y && position.X <= zoomWindowPosition.X+zoomWindowSize.X && position.Y <= zoomWindowPosition.Y+zoomWindowSize.Y)
+	if (position.X >= zoomWindowPosition.X && position.Y >= zoomWindowPosition.Y && position.X <= zoomWindowPosition.X+zoomWindowSize.X && position.Y <= zoomWindowPosition.Y+zoomWindowSize.Y)
 		return ((position-zoomWindowPosition)/GetZoomFactor())+GetZoomPosition();
 	return position;
 }
@@ -785,7 +989,7 @@ void GameModel::SetColourSelectorColour(ui::Colour colour_)
 {
 	colour = colour_;
 
-	vector<Tool*> tools = GetMenuList()[SC_DECO]->GetToolList();
+	std::vector<Tool*> tools = GetMenuList()[SC_DECO]->GetToolList();
 	for (size_t i = 0; i < tools.size(); i++)
 	{
 		((DecorationTool*)tools[i])->Red = colour.Red;
@@ -811,6 +1015,15 @@ void GameModel::SetUser(User user)
 
 void GameModel::SetPaused(bool pauseState)
 {
+	if (!pauseState && sim->debug_currentParticle > 0)
+	{
+		String logmessage = String::Build("Updated particles from #", sim->debug_currentParticle, " to end due to unpause");
+		sim->UpdateParticles(sim->debug_currentParticle, NPART);
+		sim->AfterSim();
+		sim->debug_currentParticle = 0;
+		Log(logmessage, false);
+	}
+
 	sim->sys_pause = pauseState?1:0;
 	notifyPausedChanged();
 }
@@ -854,6 +1067,31 @@ bool GameModel::GetAHeatEnable()
 	return sim->aheat_enable;
 }
 
+void GameModel::ResetAHeat()
+{
+	sim->air->ClearAirH();
+}
+
+void GameModel::SetNewtonianGravity(bool newtonainGravity)
+{
+    if (newtonainGravity)
+    {
+        sim->grav->start_grav_async();
+        SetInfoTip("Newtonian Gravity: On");
+    }
+    else
+    {
+        sim->grav->stop_grav_async();
+        SetInfoTip("Newtonian Gravity: Off");
+    }
+    UpdateQuickOptions();
+}
+
+bool GameModel::GetNewtonianGrvity()
+{
+    return sim->grav->IsEnabled();
+}
+
 void GameModel::ShowGravityGrid(bool showGrid)
 {
 	ren->gravityFieldEnabled = showGrid;
@@ -884,6 +1122,7 @@ void GameModel::ClearSimulation()
 
 	sim->clear_sim();
 	ren->ClearAccumulation();
+	Client::Ref().ClearAuthorInfo();
 
 	notifySaveChanged();
 	UpdateQuickOptions();
@@ -891,10 +1130,10 @@ void GameModel::ClearSimulation()
 
 void GameModel::SetPlaceSave(GameSave * save)
 {
-	if(save != placeSave)
+	if (save != placeSave)
 	{
 		delete placeSave;
-		if(save)
+		if (save)
 			placeSave = new GameSave(*save);
 		else
 			placeSave = NULL;
@@ -918,17 +1157,17 @@ GameSave * GameModel::GetPlaceSave()
 	return placeSave;
 }
 
-void GameModel::Log(string message, bool printToFile)
+void GameModel::Log(String message, bool printToFile)
 {
 	consoleLog.push_front(message);
 	if(consoleLog.size()>100)
 		consoleLog.pop_back();
 	notifyLogChanged(message);
 	if (printToFile)
-		std::cout << message << std::endl;
+		std::cout << message.ToUtf8() << std::endl;
 }
 
-deque<string> GameModel::GetLog()
+std::deque<String> GameModel::GetLog()
 {
 	return consoleLog;
 }
@@ -958,24 +1197,24 @@ void GameModel::RemoveNotification(Notification * notification)
 	notifyNotificationsChanged();
 }
 
-void GameModel::SetToolTip(std::string text)
+void GameModel::SetToolTip(String text)
 {
 	toolTip = text;
 	notifyToolTipChanged();
 }
 
-void GameModel::SetInfoTip(std::string text)
+void GameModel::SetInfoTip(String text)
 {
 	infoTip = text;
 	notifyInfoTipChanged();
 }
 
-std::string GameModel::GetToolTip()
+String GameModel::GetToolTip()
 {
 	return toolTip;
 }
 
-std::string GameModel::GetInfoTip()
+String GameModel::GetInfoTip()
 {
 	return infoTip;
 }
@@ -1116,7 +1355,7 @@ void GameModel::notifyPlaceSaveChanged()
 	}
 }
 
-void GameModel::notifyLogChanged(string entry)
+void GameModel::notifyLogChanged(String entry)
 {
 	for (size_t i = 0; i < observers.size(); i++)
 	{
@@ -1154,4 +1393,57 @@ void GameModel::notifyLastToolChanged()
 	{
 		observers[i]->NotifyLastToolChanged(this);
 	}
+}
+
+bool GameModel::GetMouseClickRequired()
+{
+	return mouseClickRequired;
+}
+
+void GameModel::SetMouseClickRequired(bool mouseClickRequired)
+{
+	this->mouseClickRequired = mouseClickRequired;
+}
+
+bool GameModel::GetIncludePressure()
+{
+	return includePressure;
+}
+
+void GameModel::SetIncludePressure(bool includePressure)
+{
+	this->includePressure = includePressure;
+}
+
+void GameModel::SetPerfectCircle(bool perfectCircle)
+{
+	if (perfectCircle != this->perfectCircle)
+	{
+		this->perfectCircle = perfectCircle;
+		BuildBrushList();
+	}
+}
+
+void GameModel::RemoveCustomGOLType(const ByteString &identifier)
+{
+	auto customGOLTypes = Client::Ref().GetPrefByteStringArray("CustomGOL.Types");
+	Json::Value newCustomGOLTypes(Json::arrayValue);
+	for (auto gol : customGOLTypes)
+	{
+		auto parts = gol.PartitionBy(' ');
+		bool remove = false;
+		if (parts.size())
+		{
+			if ("DEFAULT_PT_LIFECUST_" + parts[0] == identifier)
+			{
+				remove = true;
+			}
+		}
+		if (!remove)
+		{
+			newCustomGOLTypes.append(gol);
+		}
+	}
+	Client::Ref().SetPref("CustomGOL.Types", newCustomGOLTypes);
+	BuildMenus();
 }

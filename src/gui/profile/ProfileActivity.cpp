@@ -1,90 +1,60 @@
-#include <algorithm>
 #include "ProfileActivity.h"
+
 #include "gui/interface/Button.h"
 #include "gui/interface/Textbox.h"
 #include "gui/interface/Label.h"
 #include "gui/interface/AvatarButton.h"
 #include "gui/interface/ScrollPanel.h"
-#include "gui/interface/Keys.h"
 #include "gui/dialogues/ErrorMessage.h"
 #include "gui/Style.h"
+
 #include "client/Client.h"
-#include "client/UserInfo.h"
-#include "client/requestbroker/RequestListener.h"
-#include "Format.h"
+
 #include "Platform.h"
 
-ProfileActivity::ProfileActivity(std::string username) :
+ProfileActivity::ProfileActivity(ByteString username) :
 	WindowActivity(ui::Point(-1, -1), ui::Point(236, 300)),
 	loading(false),
 	saving(false),
 	doError(false),
 	doErrorMessage("")
 {
-	editable = Client::Ref().GetAuthUser().ID && Client::Ref().GetAuthUser().Username == username;
-
-
-	class CloseAction: public ui::ButtonAction
-	{
-		ProfileActivity * a;
-	public:
-		CloseAction(ProfileActivity * a) : a(a) {  }
-		void ActionCallback(ui::Button * sender_)
-		{
-			a->Exit();
-		}
-	};
-
-	class SaveAction: public ui::ButtonAction
-	{
-		ProfileActivity * a;
-	public:
-		SaveAction(ProfileActivity * a) : a(a) {  }
-		void ActionCallback(ui::Button * sender_)
-		{
-			if (!a->loading && !a->saving && a->editable)
-			{
-				sender_->Enabled = false;
-				sender_->SetText("Saving...");
-				a->saving = true;
-				a->info.location = ((ui::Textbox*)a->location)->GetText();
-				a->info.biography = ((ui::Textbox*)a->bio)->GetText();
-				RequestBroker::Ref().Start(Client::Ref().SaveUserInfoAsync(a->info), a);
-			}
-		}
-	};
-
+	editable = Client::Ref().GetAuthUser().UserID && Client::Ref().GetAuthUser().Username == username;
 
 	ui::Button * closeButton = new ui::Button(ui::Point(0, Size.Y-15), ui::Point(Size.X, 15), "Close");
-	closeButton->SetActionCallback(new CloseAction(this));
+	closeButton->SetActionCallback({ [this] {
+		Exit();
+	} });
 	if(editable)
 	{
 		closeButton->Size.X = (Size.X/2)+1;
 
 		ui::Button * saveButton = new ui::Button(ui::Point(Size.X/2, Size.Y-15), ui::Point(Size.X/2, 15), "Save");
-		saveButton->SetActionCallback(new SaveAction(this));
+		saveButton->SetActionCallback({ [this, saveButton] {
+			if (!loading && !saving && editable)
+			{
+				saveButton->Enabled = false;
+				saveButton->SetText("Saving...");
+				saving = true;
+				info.location = location->GetText();
+				info.biography = bio->GetText();
+				SaveUserInfoRequestMonitor::RequestSetup(info);
+				SaveUserInfoRequestMonitor::RequestStart();
+			}
+		} });
 		AddComponent(saveButton);
 	}
 
 	AddComponent(closeButton);
 
 	loading = true;
-	RequestBroker::Ref().Start(Client::Ref().GetUserInfoAsync(username), this);
+
+	GetUserInfoRequestMonitor::RequestSetup(username);
+	GetUserInfoRequestMonitor::RequestStart();
 }
 
 void ProfileActivity::setUserInfo(UserInfo newInfo)
 {
-	class EditAvatarAction: public ui::ButtonAction
-	{
-		ProfileActivity * a;
-	public:
-		EditAvatarAction(ProfileActivity * a) : a(a) {  }
-		void ActionCallback(ui::Button * sender_)
-		{
-			Platform::OpenURI("http://" SERVER "/Profile/Avatar.html");
-		}
-	};
-
 	info = newInfo;
 
 	if (!info.biography.length() && !editable)
@@ -100,7 +70,7 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	int currentY = 5;
 
 	// username label
-	ui::Label * title = new ui::Label(ui::Point(4, currentY), ui::Point(Size.X-8-(40+8+75), 15), info.username);
+	ui::Label * title = new ui::Label(ui::Point(4, currentY), ui::Point(Size.X-8-(40+8+75), 15), info.username.FromUtf8());
 	title->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	scrollPanel->AddChild(title);
 
@@ -112,7 +82,9 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	if (editable)
 	{
 		ui::Button * editAvatar = new ui::Button(ui::Point(Size.X - (40 + 16 + 75), currentY), ui::Point(75, 15), "Edit Avatar");
-		editAvatar->SetActionCallback(new EditAvatarAction(this));
+		editAvatar->SetActionCallback({ [] {
+			Platform::OpenURI(SCHEME SERVER "/Profile/Avatar.html");
+		} });
 		scrollPanel->AddChild(editAvatar);
 	}
 	currentY += 23;
@@ -124,7 +96,7 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	scrollPanel->AddChild(ageTitle);
 
 	// can't figure out how to tell a null from a 0 in the json library we use
-	ui::Label *age = new ui::Label(ui::Point(8+ageTitle->Size.X, currentY), ui::Point(40, 15), info.age ? format::NumberToString<int>(info.age) : "\bgNot Provided");
+	ui::Label *age = new ui::Label(ui::Point(8+ageTitle->Size.X, currentY), ui::Point(40, 15), info.age ? String::Build(info.age) : "\bgNot Provided");
 	age->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	scrollPanel->AddChild(age);
 	currentY += 2+age->Size.Y;
@@ -149,7 +121,7 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	websiteTitle->SetTextColour(ui::Colour(180, 180, 180));
 	scrollPanel->AddChild(websiteTitle);
 
-	ui::Label *website = new ui::Label(ui::Point(8+websiteTitle->Size.X, currentY), ui::Point(Size.X-websiteTitle->Size.X-16, 15), info.website);
+	ui::Label *website = new ui::Label(ui::Point(8+websiteTitle->Size.X, currentY), ui::Point(Size.X-websiteTitle->Size.X-16, 15), info.website.FromUtf8());
 	website->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	scrollPanel->AddChild(website);
 	currentY += 2+website->Size.Y;
@@ -167,7 +139,7 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 		saveCountTitle->SetTextColour(ui::Colour(180, 180, 180));
 		scrollPanel->AddChild(saveCountTitle);
 
-		ui::Label *savesCount = new ui::Label(ui::Point(12+saveCountTitle->Size.X, currentY), ui::Point(Size.X-saveCountTitle->Size.X-16, 15), format::NumberToString<int>(info.saveCount));
+		ui::Label *savesCount = new ui::Label(ui::Point(12+saveCountTitle->Size.X, currentY), ui::Point(Size.X-saveCountTitle->Size.X-16, 15), String::Build(info.saveCount));
 		savesCount->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 		scrollPanel->AddChild(savesCount);
 		currentY += savesCount->Size.Y;
@@ -178,7 +150,7 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 		averageScoreTitle->SetTextColour(ui::Colour(180, 180, 180));
 		scrollPanel->AddChild(averageScoreTitle);
 
-		ui::Label *averageScore = new ui::Label(ui::Point(12+averageScoreTitle->Size.X, currentY), ui::Point(Size.X-averageScoreTitle->Size.X-16, 15), format::NumberToString<float>(info.averageScore));
+		ui::Label *averageScore = new ui::Label(ui::Point(12+averageScoreTitle->Size.X, currentY), ui::Point(Size.X-averageScoreTitle->Size.X-16, 15), String::Build(info.averageScore));
 		averageScore->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 		scrollPanel->AddChild(averageScore);
 		currentY += averageScore->Size.Y;
@@ -189,11 +161,11 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 		highestScoreTitle->SetTextColour(ui::Colour(180, 180, 180));
 		scrollPanel->AddChild(highestScoreTitle);
 
-		ui::Label *highestScore = new ui::Label(ui::Point(12+highestScoreTitle->Size.X, currentY), ui::Point(Size.X-highestScoreTitle->Size.X-16, 15), format::NumberToString<int>(info.highestScore));
+		ui::Label *highestScore = new ui::Label(ui::Point(12+highestScoreTitle->Size.X, currentY), ui::Point(Size.X-highestScoreTitle->Size.X-16, 15), String::Build(info.highestScore));
 		highestScore->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 		scrollPanel->AddChild(highestScore);
 		currentY += 2+highestScore->Size.Y;
-	
+
 	// biograhy
 	ui::Label * bioTitle = new ui::Label(ui::Point(4, currentY), ui::Point(50, 15), "Biography:");
 	bioTitle->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
@@ -201,22 +173,11 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	scrollPanel->AddChild(bioTitle);
 	currentY += 17;
 
-	class BioChangedAction: public ui::TextboxAction
-	{
-	public:
-		ProfileActivity * profileActivity;
-		BioChangedAction(ProfileActivity * profileActivity_) { profileActivity = profileActivity_; }
-		virtual void TextChangedCallback(ui::Textbox * sender)
-		{
-			profileActivity->ResizeArea();
-		}
-	};
-
 	if (editable)
 	{
 		bio = new ui::Textbox(ui::Point(4, currentY), ui::Point(Size.X-12, -1), info.biography);
 		((ui::Textbox*)bio)->SetInputType(ui::Textbox::Multiline);
-		((ui::Textbox*)bio)->SetActionCallback(new BioChangedAction(this));
+		((ui::Textbox*)bio)->SetActionCallback({ [this] { ResizeArea(); } });
 		((ui::Textbox*)bio)->SetLimit(20000);
 	}
 	else
@@ -231,27 +192,31 @@ void ProfileActivity::setUserInfo(UserInfo newInfo)
 	scrollPanel->InnerSize = ui::Point(Size.X, currentY);
 }
 
-void ProfileActivity::OnResponseReady(void * userDataPtr, int identifier)
+void ProfileActivity::OnResponse(bool SaveUserInfoStatus)
 {
-	if (loading)
-	{
-		loading = false;
-		setUserInfo(*(UserInfo*)userDataPtr);
-		delete (UserInfo*)userDataPtr;
-	}
-	else if (saving)
+	if (SaveUserInfoStatus)
 	{
 		Exit();
 	}
+	else
+	{
+		doError = true;
+		doErrorMessage = "Could not save user info: " + Client::Ref().GetLastError();
+	}
 }
 
-void ProfileActivity::OnResponseFailed(int identifier)
+void ProfileActivity::OnResponse(std::unique_ptr<UserInfo> getUserInfoResult)
 {
-	doError = true;
-	if (loading)
+	if (getUserInfoResult)
+	{
+		loading = false;
+		setUserInfo(*getUserInfoResult);
+	}
+	else
+	{
+		doError = true;
 		doErrorMessage = "Could not load user info: " + Client::Ref().GetLastError();
-	else if (saving)
-		doErrorMessage = "Could not save user info: " + Client::Ref().GetLastError();
+	}
 }
 
 void ProfileActivity::OnTick(float dt)
@@ -261,11 +226,14 @@ void ProfileActivity::OnTick(float dt)
 		ErrorMessage::Blocking("Error", doErrorMessage);
 		Exit();
 	}
+
+	SaveUserInfoRequestMonitor::RequestPoll();
+	GetUserInfoRequestMonitor::RequestPoll();
 }
 
 void ProfileActivity::OnDraw()
 {
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	g->clearrect(Position.X-2, Position.Y-2, Size.X+3, Size.Y+3);
 	g->drawrect(Position.X, Position.Y, Size.X, Size.Y, 255, 255, 255, 255);
 }
@@ -286,6 +254,5 @@ void ProfileActivity::ResizeArea()
 
 ProfileActivity::~ProfileActivity()
 {
-	RequestBroker::Ref().DetachRequestListener(this);
 }
 

@@ -1,6 +1,15 @@
-#include "simulation/Air.h"
-#include "gui/game/GameModel.h"
 #include "OptionsModel.h"
+
+#include "OptionsView.h"
+
+#include "simulation/Simulation.h"
+#include "simulation/Air.h"
+#include "simulation/Gravity.h"
+
+#include "client/Client.h"
+
+#include "gui/interface/Engine.h"
+#include "gui/game/GameModel.h"
 
 OptionsModel::OptionsModel(GameModel * gModel_) {
 	gModel = gModel_;
@@ -37,7 +46,7 @@ void OptionsModel::SetAmbientHeatSimulation(bool state)
 
 bool OptionsModel::GetNewtonianGravity()
 {
-	return sim->grav->ngrav_enable?true:false;
+	return sim->grav->IsEnabled();
 }
 
 void OptionsModel::SetNewtonianGravity(bool state)
@@ -90,17 +99,29 @@ void OptionsModel::SetGravityMode(int gravityMode)
 	notifySettingsChanged();
 }
 
-bool OptionsModel::GetScale()
+int OptionsModel::GetScale()
 {
-	return ui::Engine::Ref().GetScale()==2;
+	return ui::Engine::Ref().GetScale();
 }
-void OptionsModel::SetScale(bool doubleScale)
+
+void OptionsModel::SetScale(int scale)
 {
-	ui::Engine::Ref().SetScale(doubleScale?2:1);
-	Client::Ref().SetPref("Scale", int(doubleScale?2:1));
+	ui::Engine::Ref().SetScale(scale);
+	Client::Ref().SetPref("Scale", int(scale));
 	notifySettingsChanged();
 }
 
+bool OptionsModel::GetResizable()
+{
+	return ui::Engine::Ref().GetResizable();
+}
+
+void OptionsModel::SetResizable(bool resizable)
+{
+	ui::Engine::Ref().SetResizable(resizable);
+	Client::Ref().SetPref("Resizable", resizable);
+	notifySettingsChanged();
+}
 
 bool OptionsModel::GetFullscreen()
 {
@@ -109,7 +130,31 @@ bool OptionsModel::GetFullscreen()
 void OptionsModel::SetFullscreen(bool fullscreen)
 {
 	ui::Engine::Ref().SetFullscreen(fullscreen);
-	Client::Ref().SetPref("Fullscreen", bool(fullscreen));
+	Client::Ref().SetPref("Fullscreen", fullscreen);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetAltFullscreen()
+{
+	return ui::Engine::Ref().GetAltFullscreen();
+}
+
+void OptionsModel::SetAltFullscreen(bool altFullscreen)
+{
+	ui::Engine::Ref().SetAltFullscreen(altFullscreen);
+	Client::Ref().SetPref("AltFullscreen", altFullscreen);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetForceIntegerScaling()
+{
+	return ui::Engine::Ref().GetForceIntegerScaling();
+}
+
+void OptionsModel::SetForceIntegerScaling(bool forceIntegerScaling)
+{
+	ui::Engine::Ref().SetForceIntegerScaling(forceIntegerScaling);
+	Client::Ref().SetPref("ForceIntegerScaling", forceIntegerScaling);
 	notifySettingsChanged();
 }
 
@@ -124,6 +169,16 @@ void OptionsModel::SetFastQuit(bool fastquit)
 	notifySettingsChanged();
 }
 
+int OptionsModel::GetDecoSpace()
+{
+	return gModel->GetDecoSpace();
+}
+void OptionsModel::SetDecoSpace(int decoSpace)
+{
+	gModel->SetDecoSpace(decoSpace);
+	notifySettingsChanged();
+}
+
 bool OptionsModel::GetShowAvatars()
 {
 	return Client::Ref().GetPrefBool("ShowAvatars", true);
@@ -132,6 +187,65 @@ bool OptionsModel::GetShowAvatars()
 void OptionsModel::SetShowAvatars(bool state)
 {
 	Client::Ref().SetPref("ShowAvatars", state);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetMouseClickRequired()
+{
+	return Client::Ref().GetPrefBool("MouseClickRequired", false);
+}
+
+void OptionsModel::SetMouseClickRequired(bool mouseClickRequired)
+{
+	Client::Ref().SetPref("MouseClickRequired", mouseClickRequired);
+	gModel->SetMouseClickRequired(mouseClickRequired);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetIncludePressure()
+{
+	return Client::Ref().GetPrefBool("Simulation.IncludePressure", true);
+}
+
+void OptionsModel::SetIncludePressure(bool includePressure)
+{
+	Client::Ref().SetPref("Simulation.IncludePressure", includePressure);
+	gModel->SetIncludePressure(includePressure);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetPerfectCircle()
+{
+	return Client::Ref().GetPrefBool("PerfectCircleBrush", true);
+}
+
+void OptionsModel::SetPerfectCircle(bool perfectCircle)
+{
+	Client::Ref().SetPref("PerfectCircleBrush", perfectCircle);
+	gModel->SetPerfectCircle(perfectCircle);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetMomentumScroll()
+{
+	return Client::Ref().GetPrefBool("MomentumScroll", true);
+}
+
+void OptionsModel::SetMomentumScroll(bool state)
+{
+	Client::Ref().SetPref("MomentumScroll", state);
+	ui::Engine::Ref().SetMomentumScroll(state);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetAutoDrawLimit()
+{
+	return Client::Ref().GetPrefBool("AutoDrawLimit", false);
+}
+
+void OptionsModel::SetAutoDrawLimit(bool state)
+{
+	Client::Ref().SetPref("AutoDrawLimit", state);
 	notifySettingsChanged();
 }
 

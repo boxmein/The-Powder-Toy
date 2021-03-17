@@ -1,32 +1,33 @@
-#include <iostream>
 #include "gui/interface/Button.h"
+
+#include "gui/interface/Window.h"
+
 #include "graphics/Graphics.h"
-#include "Engine.h"
 #include "Misc.h"
+#include "Colour.h"
 
 namespace ui {
 
-Button::Button(Point position, Point size, std::string buttonText, std::string toolTip):
+Button::Button(Point position, Point size, String buttonText, String toolTip):
 	Component(position, size),
 	ButtonText(buttonText),
 	toolTip(toolTip),
 	isButtonDown(false),
 	isMouseInside(false),
 	isTogglable(false),
-	toggle(false),
-	actionCallback(NULL)
+	toggle(false)
 {
-	TextPosition();
+	TextPosition(ButtonText);
 }
 
-void Button::TextPosition()
+void Button::TextPosition(String ButtonText)
 {
 	buttonDisplayText = ButtonText;
 	if(buttonDisplayText.length())
 	{
-		if(Graphics::textwidth((char *)buttonDisplayText.c_str()) > Size.X - (Appearance.icon? 22 : 0))
+		if(Graphics::textwidth(buttonDisplayText) > Size.X - (Appearance.icon? 22 : 0))
 		{
-			int position = Graphics::textwidthx((char *)buttonDisplayText.c_str(), Size.X - (Appearance.icon? 38 : 22));
+			int position = Graphics::textwidthx(buttonDisplayText, Size.X - (Appearance.icon? 38 : 22));
 			buttonDisplayText = buttonDisplayText.erase(position, buttonDisplayText.length()-position);
 			buttonDisplayText += "...";
 		}
@@ -38,13 +39,13 @@ void Button::TextPosition()
 void Button::SetIcon(Icon icon)
 {
 	Appearance.icon = icon;
-	TextPosition();
+	TextPosition(ButtonText);
 }
 
-void Button::SetText(std::string buttonText)
+void Button::SetText(String buttonText)
 {
 	ButtonText = buttonText;
-	TextPosition();
+	TextPosition(ButtonText);
 }
 
 void Button::SetTogglable(bool togglable)
@@ -72,10 +73,10 @@ void Button::Draw(const Point& screenPos)
 {
 	if(!drawn)
 	{
-		TextPosition();
+		TextPosition(ButtonText);
 		drawn = true;
 	}
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	Point Position = screenPos;
 	ui::Colour bgColour(0, 0, 0);
 
@@ -189,8 +190,8 @@ void Button::OnMouseEnter(int x, int y)
 	isMouseInside = true;
 	if(!Enabled)
 		return;
-	if(actionCallback)
-		actionCallback->MouseEnterCallback(this);
+	if (actionCallback.mouseEnter)
+		actionCallback.mouseEnter();
 }
 
 void Button::OnMouseHover(int x, int y)
@@ -211,27 +212,16 @@ void Button::DoAction()
 {
 	if(!Enabled)
 		return;
-	if(actionCallback)
-		actionCallback->ActionCallback(this);
+	if (actionCallback.action)
+		actionCallback.action();
 }
 
 void Button::DoAltAction()
 {
 	if(!Enabled)
 		return;
-	if(actionCallback)
-		actionCallback->AltActionCallback(this);
-}
-
-void Button::SetActionCallback(ButtonAction * action)
-{
-	delete actionCallback;
-	actionCallback = action;
-}
-
-Button::~Button()
-{
-	delete actionCallback;
+	if (actionCallback.altAction)
+		actionCallback.altAction();
 }
 
 } /* namespace ui */

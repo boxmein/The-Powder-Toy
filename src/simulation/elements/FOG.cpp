@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_FOG PT_FOG 92
-Element_FOG::Element_FOG()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_FOG()
 {
 	Identifier = "DEFAULT_PT_FOG";
 	Name = "FOG";
@@ -26,7 +28,7 @@ Element_FOG::Element_FOG()
 
 	Weight = 1;
 
-	Temperature = 243.15f;
+	DefaultProperties.temp = 243.15f;
 	HeatConduct = 100;
 	Description = "Fog, created when an electric current is passed through RIME.";
 
@@ -41,11 +43,10 @@ Element_FOG::Element_FOG()
 	HighTemperature = 373.15f;
 	HighTemperatureTransition = PT_WTRV;
 
-	Update = &Element_FOG::update;
+	Update = &update;
 }
 
-//#TPT-Directive ElementHeader Element_FOG static int update(UPDATE_FUNC_ARGS)
-int Element_FOG::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	for (rx=-1; rx<2; rx++)
@@ -55,17 +56,14 @@ int Element_FOG::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((sim->elements[r&0xFF].Properties&TYPE_SOLID) && !(rand()%10) && parts[i].life==0 && !((r&0xFF)==PT_CLNE || (r&0xFF)==PT_PCLN)) // TODO: should this also exclude BCLN?
+				if ((sim->elements[TYP(r)].Properties&TYPE_SOLID) && RNG::Ref().chance(1, 10) && parts[i].life==0 && !(TYP(r)==PT_CLNE || TYP(r)==PT_PCLN)) // TODO: should this also exclude BCLN?
 				{
 					sim->part_change_type(i,x,y,PT_RIME);
 				}
-				if ((r&0xFF)==PT_SPRK)
+				if (TYP(r)==PT_SPRK)
 				{
-					parts[i].life += rand()%20;
+					parts[i].life += RNG::Ref().between(0, 19);
 				}
 			}
 	return 0;
 }
-
-
-Element_FOG::~Element_FOG() {}

@@ -1,31 +1,31 @@
-#if defined(RENDERER)
+#include "Config.h"
+#include "graphics/Graphics.h"
+#include "graphics/Renderer.h"
 
-#include <time.h>
+#include <ctime>
 #include <iostream>
-#include <sstream>
-#include <string>
 #include <fstream>
 #include <vector>
 
-#include "Config.h"
+#include "common/String.h"
 #include "Format.h"
 #include "gui/interface/Engine.h"
-#include "graphics/Graphics.h"
-#include "graphics/Renderer.h"
 
 #include "client/GameSave.h"
 #include "simulation/Simulation.h"
 
 
 void EngineProcess() {}
-void ClipboardPush(std::string) {}
-std::string ClipboardPull() { return ""; }
+void ClipboardPush(ByteString) {}
+ByteString ClipboardPull() { return ""; }
 int GetModifiers() { return 0; }
+void SetCursorEnabled(int enabled) {}
+unsigned int GetTicks() { return 0; }
 
-void readFile(std::string filename, std::vector<char> & storage)
+void readFile(ByteString filename, std::vector<char> & storage)
 {
 	std::ifstream fileStream;
-	fileStream.open(std::string(filename).c_str(), std::ios::binary);
+	fileStream.open(filename.c_str(), std::ios::binary);
 	if(fileStream.is_open())
 	{
 		fileStream.seekg(0, std::ios::end);
@@ -43,10 +43,10 @@ void readFile(std::string filename, std::vector<char> & storage)
 	}
 }
 
-void writeFile(std::string filename, std::vector<char> & fileData)
+void writeFile(ByteString filename, std::vector<char> & fileData)
 {
 	std::ofstream fileStream;
-	fileStream.open(std::string(filename).c_str(), std::ios::binary);
+	fileStream.open(filename.c_str(), std::ios::binary);
 	if(fileStream.is_open())
 	{
 		fileStream.write(&fileData[0], fileData.size());
@@ -54,16 +54,27 @@ void writeFile(std::string filename, std::vector<char> & fileData)
 	}
 }
 
+// * On windows, sdl2 (which gets included somewhere along the way) defines
+//   main away to some identifier which sdl2main calls. The renderer is not
+//   linked against sdl2main, so we get an undefined reference to main. This
+//   can be fixed by removing the macro.
+#ifdef main
+# undef main
+#endif
+
 int main(int argc, char *argv[])
-{	
-	ui::Engine * engine;
-	std::string outputPrefix, inputFilename;
+{
+	ByteString outputPrefix, inputFilename;
 	std::vector<char> inputFile;
-	std::string ppmFilename, ptiFilename, ptiSmallFilename, pngFilename, pngSmallFilename;
+	ByteString ppmFilename, ptiFilename, ptiSmallFilename, pngFilename, pngSmallFilename;
 	std::vector<char> ppmFile, ptiFile, ptiSmallFile, pngFile, pngSmallFile;
 
-	inputFilename = std::string(argv[1]);
-	outputPrefix = std::string(argv[2]);
+	if (!argv[1] || !argv[2]) {
+		std::cout << "Usage: " << argv[0] << " <inputFilename> <outputPrefix>" << std::endl;
+		return 1;
+	}
+	inputFilename = argv[1];
+	outputPrefix = argv[2];
 
 	ppmFilename = outputPrefix+".ppm";
 	ptiFilename = outputPrefix+".pti";
@@ -73,29 +84,24 @@ int main(int argc, char *argv[])
 
 	readFile(inputFilename, inputFile);
 
-	ui::Engine::Ref().g = new Graphics();
-	
-	engine = &ui::Engine::Ref();
-	engine->Begin(WINDOWW, WINDOWH);
-
 	GameSave * gameSave = NULL;
 	try
 	{
 		gameSave = new GameSave(inputFile);
 	}
-	catch (ParseException e)
+	catch (ParseException &e)
 	{
 		//Render the save again later or something? I don't know
-		if (e.what() == "Save from newer version")
+		if (ByteString(e.what()).FromUtf8() == "Save from newer version")
 			throw e;
 	}
 
 	Simulation * sim = new Simulation();
-	Renderer * ren = new Renderer(ui::Engine::Ref().g, sim);
+	Renderer * ren = new Renderer(new Graphics(), sim);
 
 	if (gameSave)
 	{
-		sim->Load(gameSave);
+		sim->Load(gameSave, true);
 
 		//Render save
 		ren->decorations_enable = true;
@@ -137,5 +143,3 @@ int main(int argc, char *argv[])
 	writeFile(pngFilename, pngFile);
 	writeFile(pngSmallFilename, pngSmallFile);
 }
-
-#endif

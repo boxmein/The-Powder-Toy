@@ -1,4 +1,9 @@
+#ifndef SIMULATIONDATA_H
+#define SIMULATIONDATA_H
+#include "Config.h"
+
 #include <vector>
+#include <array>
 
 #define SC_WALL 0
 #define SC_ELEC 1
@@ -14,10 +19,11 @@
 #define SC_SPECIAL 11
 #define SC_LIFE 12
 #define SC_TOOL 13
-#define SC_DECO 14
-#define SC_CRACKER 15
-#define SC_CRACKER2 16
-#define SC_TOTAL 15
+#define SC_FAVORITES 14
+#define SC_DECO 15
+#define SC_CRACKER 16
+#define SC_CRACKER2 17
+#define SC_TOTAL 16
 
 #define O_WL_WALLELEC	122
 #define O_WL_EWALL		123
@@ -56,20 +62,21 @@
 #define WL_ALLOWENERGY	15
 #define WL_BLOCKAIR		16
 #define WL_ERASEALL		17
+#define WL_STASIS		18
 #define WL_FLOODHELPER	255
 
-#define UI_WALLCOUNT 18
+#define UI_WALLCOUNT 19
 
 #define OLD_SPC_AIR 236
 #define SPC_AIR 256
 
 #define DECO_DRAW	0
-#define DECO_ADD	1
-#define DECO_SUBTRACT	2
-#define DECO_MULTIPLY	3
-#define DECO_DIVIDE	4
-#define DECO_SMUDGE 5
-#define DECO_CLEAR	6
+#define DECO_CLEAR	1
+#define DECO_ADD	2
+#define DECO_SUBTRACT	3
+#define DECO_MULTIPLY	4
+#define DECO_DIVIDE	5
+#define DECO_SMUDGE 6
 
 //Old IDs for GOL types
 #define GT_GOL 78
@@ -127,29 +134,22 @@
 #define REPLACE_MODE 0x1
 #define SPECIFIC_DELETE 0x2
 
-#ifndef SIMULATIONDATA_H
-#define SIMULATIONDATA_H
-
 struct part_type;
 struct part_transition;
 
 struct wall_type;
-struct gol_menu;
+struct BuiltinGOL;
 struct menu_section;
 
 class SimTool;
 class Element;
 
-gol_menu * LoadGOLMenu(int & golMenuCount);
+extern const BuiltinGOL builtinGol[];
 
-int * LoadGOLTypes(int & golTypeCount);
+std::vector<wall_type> LoadWalls();
 
-int * LoadGOLRules(int & golRuleCount);
+std::vector<menu_section> LoadMenus();
 
-wall_type * LoadWalls(int & wallCount);
-
-menu_section * LoadMenus(int & menuCount);
-
-unsigned int * LoadLatent(int & elementCount);
+std::vector<unsigned int> LoadLatent();
 
 #endif /* SIMULATIONDATA_H */

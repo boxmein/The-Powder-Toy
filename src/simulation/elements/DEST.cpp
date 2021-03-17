@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_DEST PT_DEST 89
-Element_DEST::Element_DEST()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_DEST()
 {
 	Identifier = "DEFAULT_PT_DEST";
 	Name = "DEST";
@@ -26,7 +29,6 @@ Element_DEST::Element_DEST()
 
 	Weight = 101;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 150;
 	Description = "More destructive Bomb, can break through virtually anything.";
 
@@ -41,57 +43,56 @@ Element_DEST::Element_DEST()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_DEST::update;
-	Graphics = &Element_DEST::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_DEST static int update(UPDATE_FUNC_ARGS)
-int Element_DEST::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
-	int rx = rand()%5-2;
-	int ry = rand()%5-2;
+	int rx = RNG::Ref().between(-2, 2);
+	int ry = RNG::Ref().between(-2, 2);
 	int r = pmap[y+ry][x+rx];
-	if (!r || !BOUNDS_CHECK || (r&0xFF)==PT_DEST || (r&0xFF)==PT_DMND || (r&0xFF)==PT_BCLN  || (r&0xFF)==PT_CLNE  || (r&0xFF)==PT_PCLN  || (r&0xFF)==PT_PBCN)
+	if (!r)
+		return 0;
+	int rt = TYP(r);
+	if (rt == PT_DEST || rt == PT_DMND || rt == PT_BCLN  || rt == PT_CLNE  || rt == PT_PCLN  || rt == PT_PBCN)
 		return 0;
 
 	if (parts[i].life<=0 || parts[i].life>37)
 	{
-		parts[i].life=30+rand()%20;
+		parts[i].life = RNG::Ref().between(30, 49);
 		sim->pv[y/CELL][x/CELL]+=60.0f;
 	}
-	if ((r&0xFF)==PT_PLUT || (r&0xFF)==PT_DEUT)
+	if (rt == PT_PLUT || rt == PT_DEUT)
 	{
 		sim->pv[y/CELL][x/CELL]+=20.0f;
-		if (rand()%2)
+		if (RNG::Ref().chance(1, 2))
 		{
-			sim->create_part(r>>8, x+rx, y+ry, PT_NEUT);
-			parts[r>>8].temp = MAX_TEMP;
+			sim->create_part(ID(r), x+rx, y+ry, PT_NEUT);
+			parts[ID(r)].temp = MAX_TEMP;
 			sim->pv[y/CELL][x/CELL] += 10.0f;
 			parts[i].life-=4;
 		}
 	}
-	else if ((r&0xFF)==PT_INSL)
+	else if (rt == PT_INSL)
 	{
-		sim->create_part(r>>8, x+rx, y+ry, PT_PLSM);
+		sim->create_part(ID(r), x+rx, y+ry, PT_PLSM);
 	}
-	else if (!(rand()%3))
+	else if (RNG::Ref().chance(1, 3))
 	{
-		sim->kill_part(r>>8);
-		parts[i].life -= 4*((sim->elements[r&0xFF].Properties&TYPE_SOLID)?3:1);
+		sim->kill_part(ID(r));
+		parts[i].life -= 4*((sim->elements[rt].Properties&TYPE_SOLID)?3:1);
 		if (parts[i].life<=0)
 			parts[i].life=1;
 	}
-	else if (sim->elements[r&0xFF].HeatConduct) 
-		parts[r>>8].temp = MAX_TEMP;
+	else if (sim->elements[rt].HeatConduct)
+		parts[ID(r)].temp = MAX_TEMP;
 	parts[i].temp=MAX_TEMP;
 	sim->pv[y/CELL][x/CELL]+=80.0f;
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_DEST static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_DEST::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	if(cpart->life)
 	{
@@ -103,6 +104,3 @@ int Element_DEST::graphics(GRAPHICS_FUNC_ARGS)
 	}
 	return 0;
 }
-
-
-Element_DEST::~Element_DEST() {}

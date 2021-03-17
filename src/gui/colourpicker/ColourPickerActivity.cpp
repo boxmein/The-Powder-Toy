@@ -1,72 +1,64 @@
-#include <algorithm>
-#include <iomanip>
 #include "ColourPickerActivity.h"
+
 #include "gui/interface/Textbox.h"
+#include "gui/interface/Button.h"
 #include "gui/interface/Label.h"
 #include "gui/interface/Keys.h"
-#include "gui/game/Tool.h"
 #include "gui/Style.h"
-#include "Format.h"
-#include "gui/game/GameModel.h"
 
-ColourPickerActivity::ColourPickerActivity(ui::Colour initialColour, ColourPickedCallback * callback) :
+#include "graphics/Graphics.h"
+
+#include "Misc.h"
+
+ColourPickerActivity::ColourPickerActivity(ui::Colour initialColour, OnPicked onPicked_) :
 	WindowActivity(ui::Point(-1, -1), ui::Point(266, 175)),
 	currentHue(0),
 	currentSaturation(0),
 	currentValue(0),
 	mouseDown(false),
 	valueMouseDown(false),
-	callback(callback)
+	onPicked(onPicked_)
 {
+	auto colourChange = [this] {
+		int r, g, b, alpha;
+		r = rValue->GetText().ToNumber<int>(true);
+		g = gValue->GetText().ToNumber<int>(true);
+		b = bValue->GetText().ToNumber<int>(true);
+		alpha = aValue->GetText().ToNumber<int>(true);
+		if (r > 255)
+			r = 255;
+		if (g > 255)
+			g = 255;
+		if (b > 255)
+			b = 255;
+		if (alpha > 255)
+			alpha = 255;
 
-	class ColourChange : public ui::TextboxAction
-	{
-		ColourPickerActivity * a;
-	public:
-		ColourChange(ColourPickerActivity * a) : a(a) {}
-
-		void TextChangedCallback(ui::Textbox * sender)
-		{
-			int r, g, b, alpha;
-			r = format::StringToNumber<int>(a->rValue->GetText());
-			g = format::StringToNumber<int>(a->gValue->GetText());
-			b = format::StringToNumber<int>(a->bValue->GetText());
-			alpha = format::StringToNumber<int>(a->aValue->GetText());
-			if (r > 255)
-				r = 255;
-			if (g > 255)
-				g = 255;
-			if (b > 255)
-				b = 255;
-			if (alpha > 255)
-				alpha = 255;
-
-			RGB_to_HSV(r, g, b, &a->currentHue, &a->currentSaturation, &a->currentValue);
-			a->currentAlpha = alpha;
-			a->UpdateTextboxes(r, g, b, alpha);
-		}
+		RGB_to_HSV(r, g, b, &currentHue, &currentSaturation, &currentValue);
+		currentAlpha = alpha;
+		UpdateTextboxes(r, g, b, alpha);
 	};
 
 	rValue = new ui::Textbox(ui::Point(5, Size.Y-23), ui::Point(30, 17), "255");
-	rValue->SetActionCallback(new ColourChange(this));
+	rValue->SetActionCallback({ colourChange });
 	rValue->SetLimit(3);
 	rValue->SetInputType(ui::Textbox::Number);
 	AddComponent(rValue);
 
 	gValue = new ui::Textbox(ui::Point(40, Size.Y-23), ui::Point(30, 17), "255");
-	gValue->SetActionCallback(new ColourChange(this));
+	gValue->SetActionCallback({ colourChange });
 	gValue->SetLimit(3);
 	gValue->SetInputType(ui::Textbox::Number);
 	AddComponent(gValue);
 
 	bValue = new ui::Textbox(ui::Point(75, Size.Y-23), ui::Point(30, 17), "255");
-	bValue->SetActionCallback(new ColourChange(this));
+	bValue->SetActionCallback({ colourChange });
 	bValue->SetLimit(3);
 	bValue->SetInputType(ui::Textbox::Number);
 	AddComponent(bValue);
 
 	aValue = new ui::Textbox(ui::Point(110, Size.Y-23), ui::Point(30, 17), "255");
-	aValue->SetActionCallback(new ColourChange(this));
+	aValue->SetActionCallback({ colourChange });
 	aValue->SetLimit(3);
 	aValue->SetInputType(ui::Textbox::Number);
 	AddComponent(aValue);
@@ -74,26 +66,17 @@ ColourPickerActivity::ColourPickerActivity(ui::Colour initialColour, ColourPicke
 	hexValue = new::ui::Label(ui::Point(150, Size.Y-23), ui::Point(53, 17), "0xFFFFFFFF");
 	AddComponent(hexValue);
 
-	class OkayAction: public ui::ButtonAction
-	{
-		ColourPickerActivity * a;
-	public:
-		OkayAction(ColourPickerActivity * a) : a(a) { }
-		void ActionCallback(ui::Button * sender)
-		{
-			int Red, Green, Blue;
-			Red = format::StringToNumber<int>(a->rValue->GetText());
-			Green = format::StringToNumber<int>(a->gValue->GetText());
-			Blue = format::StringToNumber<int>(a->bValue->GetText());
-			ui::Colour col(Red, Green, Blue, a->currentAlpha);
-			if(a->callback)
-				a->callback->ColourPicked(col);
-			a->Exit();
-		}
-	};
-
 	ui::Button * doneButton = new ui::Button(ui::Point(Size.X-45, Size.Y-23), ui::Point(40, 17), "Done");
-	doneButton->SetActionCallback(new OkayAction(this));
+	doneButton->SetActionCallback({ [this] {
+		int Red, Green, Blue;
+		Red = rValue->GetText().ToNumber<int>(true);
+		Green = gValue->GetText().ToNumber<int>(true);
+		Blue = bValue->GetText().ToNumber<int>(true);
+		ui::Colour col(Red, Green, Blue, currentAlpha);
+		if (onPicked)
+			onPicked(col);
+		Exit();
+	} });
 	AddComponent(doneButton);
 	SetOkayButton(doneButton);
 
@@ -104,13 +87,11 @@ ColourPickerActivity::ColourPickerActivity(ui::Colour initialColour, ColourPicke
 
 void ColourPickerActivity::UpdateTextboxes(int r, int g, int b, int a)
 {
-	rValue->SetText(format::NumberToString<int>(r));
-	gValue->SetText(format::NumberToString<int>(g));
-	bValue->SetText(format::NumberToString<int>(b));
-	aValue->SetText(format::NumberToString<int>(a));
-	std::stringstream hex;
-	hex << std::hex << "0x" << std::setfill('0') << std::setw(2) << std::uppercase << a << std::setw(2) << r << std::setw(2) << g << std::setw(2) << b;
-	hexValue->SetText(hex.str());
+	rValue->SetText(String::Build(r));
+	gValue->SetText(String::Build(g));
+	bValue->SetText(String::Build(b));
+	aValue->SetText(String::Build(a));
+	hexValue->SetText(String::Build(Format::Hex(), Format::Uppercase(), Format::Width(2), a, r, g, b));
 }
 void ColourPickerActivity::OnTryExit(ExitMethod method)
 {
@@ -124,9 +105,9 @@ void ColourPickerActivity::OnMouseMove(int x, int y, int dx, int dy)
 		x -= Position.X+5;
 		y -= Position.Y+5;
 
-		currentHue = (float(x)/float(255))*359.0f;
+		currentHue = int((float(x)/float(255))*359.0f);
 		currentSaturation = 255-(y*2);
-	
+
 		if(currentSaturation > 255)
 			currentSaturation = 255;
 		if(currentSaturation < 0)
@@ -140,7 +121,7 @@ void ColourPickerActivity::OnMouseMove(int x, int y, int dx, int dy)
 	if(valueMouseDown)
 	{
 		x -= Position.X+5;
-		y -= Position.Y+5;
+		//y -= Position.Y+5;
 
 		currentValue = x;
 
@@ -165,7 +146,7 @@ void ColourPickerActivity::OnMouseDown(int x, int y, unsigned button)
 	if(x >= 0 && x < 256 && y >= 0 && y <= 128)
 	{
 		mouseDown = true;
-		currentHue = (float(x)/float(255))*359.0f;
+		currentHue = int((float(x)/float(255))*359.0f);
 		currentSaturation = 255-(y*2);
 
 		if(currentSaturation > 255)
@@ -212,7 +193,7 @@ void ColourPickerActivity::OnMouseUp(int x, int y, unsigned button)
 		x -= Position.X+5;
 		y -= Position.Y+5;
 
-		currentHue = (float(x)/float(255))*359.0f;
+		currentHue = int((float(x)/float(255))*359.0f);
 		currentSaturation = 255-(y*2);
 
 		if(currentSaturation > 255)
@@ -230,7 +211,7 @@ void ColourPickerActivity::OnMouseUp(int x, int y, unsigned button)
 		valueMouseDown = false;
 
 		x -= Position.X+5;
-		y -= Position.Y+5;
+		//y -= Position.Y+5;
 
 		currentValue = x;
 
@@ -241,9 +222,11 @@ void ColourPickerActivity::OnMouseUp(int x, int y, unsigned button)
 	}
 }
 
-void ColourPickerActivity::OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt)
+void ColourPickerActivity::OnKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
 {
-	if (key == KEY_TAB)
+	if (repeat)
+		return;
+	if (key == SDLK_TAB)
 	{
 		if (rValue->IsFocused())
 			gValue->TabFocus();
@@ -258,7 +241,7 @@ void ColourPickerActivity::OnKeyPress(int key, Uint16 character, bool shift, boo
 
 void ColourPickerActivity::OnDraw()
 {
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	//g->clearrect(Position.X-2, Position.Y-2, Size.X+3, Size.Y+3);
 	g->fillrect(Position.X-2, Position.Y-2, Size.X+3, Size.Y+3, 0, 0, 0, currentAlpha);
 	g->drawrect(Position.X, Position.Y, Size.X, Size.Y, 255, 255, 255, 255);
@@ -278,7 +261,7 @@ void ColourPickerActivity::OnDraw()
 	{
 		for(int hue = 0; hue <= 359; hue++)
 		{
-			currx = clamp_flt(hue, 0, 359)+offsetX;
+			currx = clamp_flt(float(hue), 0, 359)+offsetX;
 			if (currx == lastx)
 				continue;
 			lastx = currx;
@@ -303,7 +286,7 @@ void ColourPickerActivity::OnDraw()
 		}
 
 	//draw color square pointer
-	int currentHueX = clamp_flt(currentHue, 0, 359);
+	int currentHueX = clamp_flt(float(currentHue), 0, 359);
 	int currentSaturationY = ((255-currentSaturation)/2);
 	g->xor_line(offsetX+currentHueX, offsetY+currentSaturationY-5, offsetX+currentHueX, offsetY+currentSaturationY-1);
 	g->xor_line(offsetX+currentHueX, offsetY+currentSaturationY+1, offsetX+currentHueX, offsetY+currentSaturationY+5);
@@ -311,12 +294,7 @@ void ColourPickerActivity::OnDraw()
 	g->xor_line(offsetX+currentHueX+1, offsetY+currentSaturationY, offsetX+currentHueX+5, offsetY+currentSaturationY);
 
 	//draw brightness bar pointer
-	int currentValueX = restrict_flt(currentValue, 0, 254);
+	int currentValueX = int(restrict_flt(float(currentValue), 0, 254));
 	g->xor_line(offsetX+currentValueX, offsetY+4+128, offsetX+currentValueX, offsetY+13+128);
 	g->xor_line(offsetX+currentValueX+1, offsetY+4+128, offsetX+currentValueX+1, offsetY+13+128);
 }
-
-ColourPickerActivity::~ColourPickerActivity() {
-	delete callback;
-}
-

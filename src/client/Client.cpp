@@ -1,23 +1,23 @@
-#include <stdlib.h>
-#include <iostream>
-#include <sstream>
-#include <string>
+#include "Client.h"
+
+#include <cstdlib>
 #include <vector>
 #include <map>
+#include <iostream>
 #include <iomanip>
-#include <time.h>
-#include <stdio.h>
-#include <deque>
+#include <ctime>
+#include <cstdio>
 #include <fstream>
 #include <dirent.h>
 
 #ifdef MACOSX
-#include <mach-o/dyld.h>
-#include <ApplicationServices/ApplicationServices.h>
+# include "common/macosx.h"
 #endif
 
 #ifdef WIN
+#define NOMINMAX
 #include <shlobj.h>
+#include <objidl.h>
 #include <shlwapi.h>
 #include <windows.h>
 #include <direct.h>
@@ -26,31 +26,26 @@
 #include <unistd.h>
 #endif
 
+#include "common/String.h"
 #include "Config.h"
 #include "Format.h"
-#include "Client.h"
 #include "MD5.h"
-#include "graphics/Graphics.h"
-#include "Misc.h"
 #include "Platform.h"
 #include "Update.h"
-#include "HTTP.h"
 
-#include "simulation/SaveRenderer.h"
-#include "gui/interface/Point.h"
+#include "ClientListener.h"
+
+#include "graphics/Graphics.h"
+
+#include "gui/preview/Comment.h"
+
 #include "client/SaveInfo.h"
 #include "client/SaveFile.h"
 #include "client/GameSave.h"
 #include "client/UserInfo.h"
-#include "gui/search/Thumbnail.h"
-#include "gui/preview/Comment.h"
-#include "ClientListener.h"
-#include "requestbroker/RequestBroker.h"
-#include "requestbroker/WebRequest.h"
-#include "requestbroker/APIRequest.h"
-#include "requestbroker/APIResultParser.h"
+#include "client/http/Request.h"
+#include "client/http/RequestManager.h"
 
-#include "json/json.h"
 
 extern "C"
 {
@@ -63,25 +58,13 @@ extern "C"
 
 
 Client::Client():
-	messageOfTheDay(""),
-	versionCheckRequest(NULL),
-	alternateVersionCheckRequest(NULL),
+	messageOfTheDay("Fetching the message of the day..."),
+	versionCheckRequest(nullptr),
+	alternateVersionCheckRequest(nullptr),
 	usingAltUpdateServer(false),
 	updateAvailable(false),
 	authUser(0, "")
 {
-	int i = 0;
-	for(i = 0; i < THUMB_CACHE_SIZE; i++)
-	{
-		thumbnailCache[i] = NULL;
-	}
-	for(i = 0; i < IMGCONNS; i++)
-	{
-		activeThumbRequests[i] = NULL;
-		activeThumbRequestTimes[i] = 0;
-		activeThumbRequestCompleteTimes[i] = 0;
-	}
-
 	//Read config
 	std::ifstream configFile;
 	configFile.open("powder.pref", std::ios::binary);
@@ -92,12 +75,12 @@ Client::Client():
 			preferences.clear();
 			configFile >> preferences;
 			int ID = preferences["User"]["ID"].asInt();
-			std::string Username = preferences["User"]["Username"].asString();
-			std::string SessionID = preferences["User"]["SessionID"].asString();
-			std::string SessionKey = preferences["User"]["SessionKey"].asString();
-			std::string Elevation = preferences["User"]["Elevation"].asString();
+			ByteString Username = preferences["User"]["Username"].asString();
+			ByteString SessionID = preferences["User"]["SessionID"].asString();
+			ByteString SessionKey = preferences["User"]["SessionKey"].asString();
+			ByteString Elevation = preferences["User"]["Elevation"].asString();
 
-			authUser.ID = ID;
+			authUser.UserID = ID;
 			authUser.Username = Username;
 			authUser.SessionID = SessionID;
 			authUser.SessionKey = SessionKey;
@@ -110,7 +93,7 @@ Client::Client():
 		}
 		catch (std::exception &e)
 		{
-			
+
 		}
 		configFile.close();
 		firstRun = false;
@@ -119,18 +102,20 @@ Client::Client():
 		firstRun = true;
 }
 
-void Client::Initialise(std::string proxyString)
+void Client::Initialise(ByteString proxyString, bool disableNetwork)
 {
+#if !defined(FONTEDITOR) && !defined(RENDERER)
 	if (GetPrefBool("version.update", false))
 	{
 		SetPref("version.update", false);
 		update_finish();
 	}
+#endif
 
-	if (proxyString.length())
-		http_init((char*)proxyString.c_str());
-	else
-		http_init(NULL);
+#ifndef NOHTTP
+	if (!disableNetwork)
+		http::RequestManager::Ref().Initialise(proxyString);
+#endif
 
 	//Read stamps library
 	std::ifstream stampsLib;
@@ -147,28 +132,23 @@ void Client::Initialise(std::string proxyString)
 	stampsLib.close();
 
 	//Begin version check
-	versionCheckRequest = http_async_req_start(NULL, "http://" SERVER "/Startup.json", NULL, 0, 0);
+	versionCheckRequest = new http::Request(SCHEME SERVER "/Startup.json");
 
-	if (authUser.ID)
+	if (authUser.UserID)
 	{
-		std::string idTempString = format::NumberToString<int>(authUser.ID);
-		char *id = new char[idTempString.length() + 1];
-		std::strcpy (id, idTempString.c_str());
-		char *session = new char[authUser.SessionID.length() + 1];
-		std::strcpy (session, authUser.SessionID.c_str());
-		http_auth_headers(versionCheckRequest, id, NULL, session);
-		delete[] id;
-		delete[] session;
+		versionCheckRequest->AuthHeaders(ByteString::Build(authUser.UserID), authUser.SessionID);
 	}
+	versionCheckRequest->Start();
 
 #ifdef UPDATESERVER
 	// use an alternate update server
-	alternateVersionCheckRequest = http_async_req_start(NULL, "http://" UPDATESERVER "/Startup.json", NULL, 0, 0);
+	alternateVersionCheckRequest = new http::Request(SCHEME UPDATESERVER "/Startup.json");
 	usingAltUpdateServer = true;
-	if (authUser.ID)
+	if (authUser.UserID)
 	{
-		http_auth_headers(alternateVersionCheckRequest, authUser.Username.c_str(), NULL, NULL);
+		alternateVersionCheckRequest->AuthHeaders(authUser.Username, "");
 	}
+	alternateVersionCheckRequest->Start();
 #endif
 }
 
@@ -180,86 +160,69 @@ bool Client::IsFirstRun()
 bool Client::DoInstallation()
 {
 #if defined(WIN)
+	CoInitializeEx(NULL, COINIT_MULTITHREADED);
+	wchar_t programsPath[MAX_PATH];
+	IShellLinkW *shellLink = NULL;
+	IPersistFile *shellLinkPersist = NULL;
+
 	int returnval;
 	LONG rresult;
 	HKEY newkey;
-	char *currentfilename = Platform::ExecutableName();
-	char *iconname = NULL;
-	char *opencommand = NULL;
-	char *protocolcommand = NULL;
-	//char AppDataPath[MAX_PATH];
-	char *AppDataPath = NULL;
-	iconname = (char*)malloc(strlen(currentfilename)+6);
-	sprintf(iconname, "%s,-102", currentfilename);
-	
-	//Create Roaming application data folder
-	/*if(!SUCCEEDED(SHGetFolderPath(NULL, CSIDL_APPDATA|CSIDL_FLAG_CREATE, NULL, 0, AppDataPath))) 
-	{
-		returnval = 0;
-		goto finalise;
-	}*/
-	
-	AppDataPath = _getcwd(NULL, 0);
+	ByteString currentfilename = Platform::ExecutableName();
+	ByteString iconname = currentfilename + ",-102";
+	ByteString AppDataPath = Platform::WinNarrow(_wgetcwd(NULL, 0));
+	ByteString opencommand = "\"" + currentfilename + "\" open \"%%1\" ddir \"" + AppDataPath + "\"";
+	ByteString protocolcommand = "\"" + currentfilename + "\" ddir \"" + AppDataPath + "\" ptsave \"%%1\"";
 
-	//Move Game executable into application data folder
-	//TODO: Implement
-	
-	opencommand = (char*)malloc(strlen(currentfilename)+53+strlen(AppDataPath));
-	protocolcommand = (char*)malloc(strlen(currentfilename)+53+strlen(AppDataPath));
-	/*if((strlen(AppDataPath)+strlen(APPDATA_SUBDIR "\\Powder Toy"))<MAX_PATH)
-	{
-		strappend(AppDataPath, APPDATA_SUBDIR);
-		_mkdir(AppDataPath);
-		strappend(AppDataPath, "\\Powder Toy");
-		_mkdir(AppDataPath);
-	} else {
-		returnval = 0;
-		goto finalise;
-	}*/
-	sprintf(opencommand, "\"%s\" open \"%%1\" ddir \"%s\"", currentfilename, AppDataPath);
-	sprintf(protocolcommand, "\"%s\" ddir \"%s\" ptsave \"%%1\"", currentfilename, AppDataPath);
+	auto createKey = [](ByteString s, HKEY &k) {
+		return RegCreateKeyExW(HKEY_CURRENT_USER, Platform::WinWiden(s).c_str(), 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k, NULL);
+	};
+	auto setValue = [](HKEY k, ByteString s) {
+		auto w = Platform::WinWiden(s);
+		return RegSetValueExW(k, NULL, 0, REG_SZ, (LPBYTE)&w[0], w.size() + 1);
+	};
 
 	//Create protocol entry
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\ptsave", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\ptsave", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)"Powder Toy Save", strlen("Powder Toy Save")+1);
+	rresult = setValue(newkey, "Powder Toy Save");
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, (LPCSTR)"URL Protocol", 0, REG_SZ, (LPBYTE)"", strlen("")+1);
+	rresult = RegSetValueExW(newkey, (LPWSTR)L"URL Protocol", 0, REG_SZ, (LPBYTE)L"", 1);
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
 		goto finalise;
 	}
 	RegCloseKey(newkey);
-	
+
 	//Set Protocol DefaultIcon
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\ptsave\\DefaultIcon", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\ptsave\\DefaultIcon", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)iconname, strlen(iconname)+1);
+	rresult = setValue(newkey, iconname);
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
 		goto finalise;
 	}
-	RegCloseKey(newkey);	
-	
+	RegCloseKey(newkey);
+
 	//Set Protocol Launch command
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\ptsave\\shell\\open\\command", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\ptsave\\shell\\open\\command", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)protocolcommand, strlen(protocolcommand)+1);
+	rresult = setValue(newkey, protocolcommand);
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
@@ -268,12 +231,12 @@ bool Client::DoInstallation()
 	RegCloseKey(newkey);
 
 	//Create extension entry
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\.cps", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\.cps", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)"PowderToySave", strlen("PowderToySave")+1);
+	rresult = setValue(newkey, "PowderToySave");
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
@@ -281,12 +244,12 @@ bool Client::DoInstallation()
 	}
 	RegCloseKey(newkey);
 
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\.stm", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\.stm", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)"PowderToySave", strlen("PowderToySave")+1);
+	rresult = setValue(newkey, "PowderToySave");
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
@@ -295,12 +258,12 @@ bool Client::DoInstallation()
 	RegCloseKey(newkey);
 
 	//Create program entry
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\PowderToySave", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\PowderToySave", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)"Powder Toy Save", strlen("Powder Toy Save")+1);
+	rresult = setValue(newkey, "Powder Toy Save");
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
@@ -309,12 +272,12 @@ bool Client::DoInstallation()
 	RegCloseKey(newkey);
 
 	//Set DefaultIcon
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\PowderToySave\\DefaultIcon", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\PowderToySave\\DefaultIcon", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)iconname, strlen(iconname)+1);
+	rresult = setValue(newkey, iconname);
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
@@ -323,42 +286,47 @@ bool Client::DoInstallation()
 	RegCloseKey(newkey);
 
 	//Set Launch command
-	rresult = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Classes\\PowderToySave\\shell\\open\\command", 0, 0, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &newkey, NULL);
+	rresult = createKey("Software\\Classes\\PowderToySave\\shell\\open\\command", newkey);
 	if (rresult != ERROR_SUCCESS) {
 		returnval = 0;
 		goto finalise;
 	}
-	rresult = RegSetValueEx(newkey, 0, 0, REG_SZ, (LPBYTE)opencommand, strlen(opencommand)+1);
+	rresult = setValue(newkey, opencommand);
 	if (rresult != ERROR_SUCCESS) {
 		RegCloseKey(newkey);
 		returnval = 0;
 		goto finalise;
 	}
 	RegCloseKey(newkey);
-	
+
+	if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, SHGFP_TYPE_CURRENT, programsPath) != S_OK)
+		goto finalise;
+	if (CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLinkW, (LPVOID *)&shellLink) != S_OK)
+		goto finalise;
+	shellLink->SetPath(Platform::WinWiden(currentfilename).c_str());
+	shellLink->SetWorkingDirectory(Platform::WinWiden(AppDataPath).c_str());
+	shellLink->SetDescription(L"The Powder Toy");
+	if (shellLink->QueryInterface(IID_IPersistFile, (LPVOID *)&shellLinkPersist) != S_OK)
+		goto finalise;
+	shellLinkPersist->Save(Platform::WinWiden(Platform::WinNarrow(programsPath) + "\\The Powder Toy.lnk").c_str(), TRUE);
+
 	returnval = 1;
 	finalise:
 
-	free(iconname);
-	free(opencommand);
-	free(protocolcommand);
-	free(currentfilename);
-	
+	if (shellLinkPersist)
+		shellLinkPersist->Release();
+	if (shellLink)
+		shellLink->Release();
+	CoUninitialize();
+
 	return returnval;
 #elif defined(LIN)
 	#include "icondoc.h"
 
-	std::string filename = Platform::ExecutableName(), pathname = filename.substr(0, filename.rfind('/'));
-	for (size_t i = 0; i < filename.size(); i++)
-	{
-		if (filename[i] == '\'')
-		{
-			filename.insert(i, "'\\'");
-			i += 3;
-		}
-	}
-	filename.insert(filename.size(), "'");
-	filename.insert(0, "'");
+	int success = 1;
+	ByteString filename = Platform::ExecutableName(), pathname = filename.SplitFromEndBy('/').Before();
+	filename.Substitute('\'', "'\\''");
+	filename = '\'' + filename + '\'';
 
 	FILE *f;
 	const char *mimedata =
@@ -383,33 +351,51 @@ bool Client::DoInstallation()
 "Comment=Physics sandbox game\n"
 "MimeType=x-scheme-handler/ptsave;\n"
 "NoDisplay=true\n"
-"Categories=Game\n";
-	std::stringstream protocolfiledata;
-	protocolfiledata << protocolfiledata_tmp << "Exec=" << filename <<" ptsave %u\nPath=" << pathname << "\n";
+"Categories=Game;Simulation\n"
+"Icon=powdertoy.png\n";
+	ByteString protocolfiledata = ByteString::Build(protocolfiledata_tmp, "Exec=", filename, " ptsave %u\nPath=", pathname, "\n");
 	f = fopen("powdertoy-tpt-ptsave.desktop", "wb");
 	if (!f)
 		return 0;
-	fwrite(protocolfiledata.str().c_str(), 1, strlen(protocolfiledata.str().c_str()), f);
+	fwrite(protocolfiledata.c_str(), 1, protocolfiledata.size(), f);
 	fclose(f);
-	system("xdg-desktop-menu install powdertoy-tpt-ptsave.desktop");
+	success = system("xdg-desktop-menu install powdertoy-tpt-ptsave.desktop");
 
-	const char *desktopfiledata_tmp =
+	const char *desktopopenfiledata_tmp =
 "[Desktop Entry]\n"
 "Type=Application\n"
 "Name=Powder Toy\n"
 "Comment=Physics sandbox game\n"
 "MimeType=application/vnd.powdertoy.save;\n"
 "NoDisplay=true\n"
-"Categories=Game\n";
-	std::stringstream desktopfiledata;
-	desktopfiledata << desktopfiledata_tmp << "Exec=" << filename <<" open %f\nPath=" << pathname << "\n";
+"Categories=Game;Simulation\n"
+"Icon=powdertoy.png\n";
+	ByteString desktopopenfiledata = ByteString::Build(desktopopenfiledata_tmp, "Exec=", filename, " open %f\nPath=", pathname, "\n");
+	f = fopen("powdertoy-tpt-open.desktop", "wb");
+	if (!f)
+		return 0;
+	fwrite(desktopopenfiledata.c_str(), 1, desktopopenfiledata.size(), f);
+	fclose(f);
+	success = system("xdg-mime install powdertoy-save.xml") && success;
+	success = system("xdg-desktop-menu install powdertoy-tpt-open.desktop") && success;
+
+	const char *desktopfiledata_tmp =
+"[Desktop Entry]\n"
+"Version=1.0\n"
+"Encoding=UTF-8\n"
+"Name=Powder Toy\n"
+"Type=Application\n"
+"Comment=Physics sandbox game\n"
+"Categories=Game;Simulation\n"
+"Icon=powdertoy.png\n";
+	ByteString desktopfiledata = ByteString::Build(desktopfiledata_tmp, "Exec=", filename, "\nPath=", pathname, "\n");
 	f = fopen("powdertoy-tpt.desktop", "wb");
 	if (!f)
 		return 0;
-	fwrite(desktopfiledata.str().c_str(), 1, strlen(desktopfiledata.str().c_str()), f);
+	fwrite(desktopfiledata.c_str(), 1, desktopfiledata.size(), f);
 	fclose(f);
-	system("xdg-mime install powdertoy-save.xml");
-	system("xdg-desktop-menu install powdertoy-tpt.desktop");
+	success = system("xdg-desktop-menu install powdertoy-tpt.desktop") && success;
+
 	f = fopen("powdertoy-save-32.png", "wb");
 	if (!f)
 		return 0;
@@ -420,67 +406,64 @@ bool Client::DoInstallation()
 		return 0;
 	fwrite(icon_doc_16_png, 1, sizeof(icon_doc_16_png), f);
 	fclose(f);
-	system("xdg-icon-resource install --noupdate --context mimetypes --size 32 powdertoy-save-32.png application-vnd.powdertoy.save");
-	system("xdg-icon-resource install --noupdate --context mimetypes --size 16 powdertoy-save-16.png application-vnd.powdertoy.save");
-	system("xdg-icon-resource forceupdate");
-	system("xdg-mime default powdertoy-tpt.desktop application/vnd.powdertoy.save");
-	system("xdg-mime default powdertoy-tpt-ptsave.desktop x-scheme-handler/ptsave");
+	f = fopen("powdertoy.png", "wb");
+	if (!f)
+		return 0;
+	fwrite(icon_desktop_48_png, 1, sizeof(icon_desktop_48_png), f);
+	fclose(f);
+	success = system("xdg-icon-resource install --noupdate --context mimetypes --size 32 powdertoy-save-32.png application-vnd.powdertoy.save") && success;
+	success = system("xdg-icon-resource install --noupdate --context mimetypes --size 16 powdertoy-save-16.png application-vnd.powdertoy.save") && success;
+	success = system("xdg-icon-resource install --noupdate --novendor --size 48 powdertoy.png") && success;
+	success = system("xdg-icon-resource forceupdate") && success;
+	success = system("xdg-mime default powdertoy-tpt-open.desktop application/vnd.powdertoy.save") && success;
+	success = system("xdg-mime default powdertoy-tpt-ptsave.desktop x-scheme-handler/ptsave") && success;
+	unlink("powdertoy.png");
 	unlink("powdertoy-save-32.png");
 	unlink("powdertoy-save-16.png");
 	unlink("powdertoy-save.xml");
 	unlink("powdertoy-tpt.desktop");
+	unlink("powdertoy-tpt-open.desktop");
 	unlink("powdertoy-tpt-ptsave.desktop");
-	return true;
+	return !success;
 #elif defined MACOSX
 	return false;
 #endif
 }
 
-void Client::SetProxy(std::string proxy)
+std::vector<ByteString> Client::DirectorySearch(ByteString directory, ByteString search, ByteString extension)
 {
-	http_done();
-	if(proxy.length())
-		http_init((char*)proxy.c_str());
-	else
-		http_init(NULL);
-}
-
-std::vector<std::string> Client::DirectorySearch(std::string directory, std::string search, std::string extension)
-{
-	std::vector<std::string> extensions;
+	std::vector<ByteString> extensions;
 	extensions.push_back(extension);
-	for (std::string::iterator iter = search.begin(); iter != search.end(); ++iter)
-		*iter = toupper(*iter);
-	return DirectorySearch(directory, search, extensions);
+	return DirectorySearch(directory, search.ToUpper(), extensions);
 }
 
-std::vector<std::string> Client::DirectorySearch(std::string directory, std::string search, std::vector<std::string> extensions)
+std::vector<ByteString> Client::DirectorySearch(ByteString directory, ByteString search, std::vector<ByteString> extensions)
 {
 	//Get full file listing
 	//Normalise directory string, ensure / or \ is present
 	if(*directory.rbegin() != '/' && *directory.rbegin() != '\\')
 		directory += PATH_SEP;
-	std::vector<std::string> directoryList;
+	std::vector<ByteString> directoryList;
 #if defined(WIN) && !defined(__GNUC__)
 	//Windows
-	struct _finddata_t currentFile;
+	struct _wfinddata_t currentFile;
 	intptr_t findFileHandle;
-	std::string fileMatch = directory + "*.*";
-	findFileHandle = _findfirst(fileMatch.c_str(), &currentFile);
+	ByteString fileMatch = directory + "*.*";
+	findFileHandle = _wfindfirst(Platform::WinWiden(fileMatch).c_str(), &currentFile);
 	if (findFileHandle == -1L)
 	{
 #ifdef DEBUG
 		printf("Unable to open directory: %s\n", directory.c_str());
 #endif
-		return std::vector<std::string>();
+		return std::vector<ByteString>();
 	}
 	do
 	{
-		std::string currentFileName = std::string(currentFile.name);
+		ByteString currentFileName = Platform::WinNarrow(currentFile.name);
 		if(currentFileName.length()>4)
 			directoryList.push_back(directory+currentFileName);
 	}
-	while (_findnext(findFileHandle, &currentFile) == 0);
+	while (_wfindnext(findFileHandle, &currentFile) == 0);
 	_findclose(findFileHandle);
 #else
 	//Linux or MinGW
@@ -491,38 +474,35 @@ std::vector<std::string> Client::DirectorySearch(std::string directory, std::str
 #ifdef DEBUG
 		printf("Unable to open directory: %s\n", directory.c_str());
 #endif
-		return std::vector<std::string>();
+		return std::vector<ByteString>();
 	}
 	while ((directoryEntry = readdir(directoryHandle)))
 	{
-		std::string currentFileName = std::string(directoryEntry->d_name);
+		ByteString currentFileName = ByteString(directoryEntry->d_name);
 		if(currentFileName.length()>4)
 			directoryList.push_back(directory+currentFileName);
 	}
 	closedir(directoryHandle);
 #endif
 
-	std::vector<std::string> searchResults;
-	for(std::vector<std::string>::iterator iter = directoryList.begin(), end = directoryList.end(); iter != end; ++iter)
+	std::vector<ByteString> searchResults;
+	for(std::vector<ByteString>::iterator iter = directoryList.begin(), end = directoryList.end(); iter != end; ++iter)
 	{
-		std::string filename = *iter, tempfilename = *iter;
+		ByteString filename = *iter, tempfilename = *iter;
 		bool extensionMatch = !extensions.size();
-		for(std::vector<std::string>::iterator extIter = extensions.begin(), extEnd = extensions.end(); extIter != extEnd; ++extIter)
+		for(std::vector<ByteString>::iterator extIter = extensions.begin(), extEnd = extensions.end(); extIter != extEnd; ++extIter)
 		{
-			size_t filenameLength = filename.length()-(*extIter).length();
-			if(filename.find(*extIter, filenameLength) == filenameLength)
+			if(filename.EndsWith(*extIter))
 			{
 				extensionMatch = true;
-				tempfilename = filename.substr(0, filenameLength);
+				tempfilename = filename.SubstrFromEnd(0, (*extIter).size()).ToUpper();
 				break;
 			}
 		}
-		for (std::string::iterator iter = tempfilename.begin(); iter != tempfilename.end(); ++iter)
-			*iter = toupper(*iter);
 		bool searchMatch = !search.size();
-		if(search.size() && tempfilename.find(search)!=std::string::npos)
+		if(search.size() && tempfilename.Contains(search))
 			searchMatch = true;
-		
+
 		if(searchMatch && extensionMatch)
 			searchResults.push_back(filename);
 	}
@@ -534,19 +514,19 @@ std::vector<std::string> Client::DirectorySearch(std::string directory, std::str
 int Client::MakeDirectory(const char * dirName)
 {
 #ifdef WIN
-	return _mkdir(dirName);
+	return _wmkdir(Platform::WinWiden(dirName).c_str());
 #else
 	return mkdir(dirName, 0755);
 #endif
 }
 
-bool Client::WriteFile(std::vector<unsigned char> fileData, std::string filename)
+bool Client::WriteFile(std::vector<unsigned char> fileData, ByteString filename)
 {
 	bool saveError = false;
 	try
 	{
 		std::ofstream fileStream;
-		fileStream.open(std::string(filename).c_str(), std::ios::binary);
+		fileStream.open(filename, std::ios::binary);
 		if(fileStream.is_open())
 		{
 			fileStream.write((char*)&fileData[0], fileData.size());
@@ -563,13 +543,13 @@ bool Client::WriteFile(std::vector<unsigned char> fileData, std::string filename
 	return saveError;
 }
 
-bool Client::FileExists(std::string filename)
+bool Client::FileExists(ByteString filename)
 {
 	bool exists = false;
 	try
 	{
 		std::ifstream fileStream;
-		fileStream.open(std::string(filename).c_str(), std::ios::binary);
+		fileStream.open(filename, std::ios::binary);
 		if(fileStream.is_open())
 		{
 			exists = true;
@@ -583,13 +563,13 @@ bool Client::FileExists(std::string filename)
 	return exists;
 }
 
-bool Client::WriteFile(std::vector<char> fileData, std::string filename)
+bool Client::WriteFile(std::vector<char> fileData, ByteString filename)
 {
 	bool saveError = false;
 	try
 	{
 		std::ofstream fileStream;
-		fileStream.open(std::string(filename).c_str(), std::ios::binary);
+		fileStream.open(filename, std::ios::binary);
 		if(fileStream.is_open())
 		{
 			fileStream.write(&fileData[0], fileData.size());
@@ -606,12 +586,12 @@ bool Client::WriteFile(std::vector<char> fileData, std::string filename)
 	return saveError;
 }
 
-std::vector<unsigned char> Client::ReadFile(std::string filename)
+std::vector<unsigned char> Client::ReadFile(ByteString filename)
 {
 	try
 	{
 		std::ifstream fileStream;
-		fileStream.open(std::string(filename).c_str(), std::ios::binary);
+		fileStream.open(filename, std::ios::binary);
 		if(fileStream.is_open())
 		{
 			fileStream.seekg(0, std::ios::end);
@@ -640,33 +620,33 @@ std::vector<unsigned char> Client::ReadFile(std::string filename)
 	}
 }
 
-void Client::SetMessageOfTheDay(std::string message)
+void Client::SetMessageOfTheDay(String message)
 {
 	messageOfTheDay = message;
 	notifyMessageOfTheDay();
 }
 
-std::string Client::GetMessageOfTheDay()
+String Client::GetMessageOfTheDay()
 {
 	return messageOfTheDay;
 }
 
-void Client::AddServerNotification(std::pair<std::string, std::string> notification)
+void Client::AddServerNotification(std::pair<String, ByteString> notification)
 {
 	serverNotifications.push_back(notification);
 	notifyNewNotification(notification);
 }
 
-std::vector<std::pair<std::string, std::string> > Client::GetServerNotifications()
+std::vector<std::pair<String, ByteString> > Client::GetServerNotifications()
 {
 	return serverNotifications;
 }
 
-RequestStatus Client::ParseServerReturn(char *result, int status, bool json)
+RequestStatus Client::ParseServerReturn(ByteString &result, int status, bool json)
 {
 	lastError = "";
 	// no server response, return "Malformed Response"
-	if (status == 200 && !result)
+	if (status == 200 && !result.size())
 	{
 		status = 603;
 	}
@@ -674,9 +654,7 @@ RequestStatus Client::ParseServerReturn(char *result, int status, bool json)
 		return RequestOkay;
 	if (status != 200)
 	{
-		std::stringstream httperror;
-		httperror << "HTTP Error " << status << ": " << http_ret_text(status);
-		lastError = httperror.str();
+		lastError = String::Build("HTTP Error ", status, ": ", http::StatusText(status));
 		return RequestFailure;
 	}
 
@@ -696,30 +674,28 @@ RequestStatus Client::ParseServerReturn(char *result, int status, bool json)
 			int status = root.get("Status", 1).asInt();
 			if (status != 1)
 			{
-				lastError = root.get("Error", "Unspecified Error").asString();
+				lastError = ByteString(root.get("Error", "Unspecified Error").asString()).FromUtf8();
 				return RequestFailure;
 			}
 		}
 		catch (std::exception &e)
 		{
 			// sometimes the server returns a 200 with the text "Error: 401"
-			if (!strncmp((const char *)result, "Error: ", 7))
+			if (!strncmp(result.c_str(), "Error: ", 7))
 			{
-				status = atoi(result+7);
-				std::stringstream httperror;
-				httperror << "HTTP Error " << status << ": " << http_ret_text(status);
-				lastError = httperror.str();
+				status = ByteString(result.begin() + 7, result.end()).ToNumber<int>();
+				lastError = String::Build("HTTP Error ", status, ": ", http::StatusText(status));
 				return RequestFailure;
 			}
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 			return RequestFailure;
 		}
 	}
 	else
 	{
-		if (strncmp((const char *)result, "OK", 2))
+		if (strncmp(result.c_str(), "OK", 2))
 		{
-			lastError = std::string(result);
+			lastError = result.FromUtf8();
 			return RequestFailure;
 		}
 	}
@@ -728,34 +704,33 @@ RequestStatus Client::ParseServerReturn(char *result, int status, bool json)
 
 void Client::Tick()
 {
-	//Check thumbnail queue
-	RequestBroker::Ref().FlushThumbQueue();
 	if (versionCheckRequest)
 	{
 		if (CheckUpdate(versionCheckRequest, true))
-			versionCheckRequest = NULL;
+			versionCheckRequest = nullptr;
 	}
 	if (alternateVersionCheckRequest)
 	{
 		if (CheckUpdate(alternateVersionCheckRequest, false))
-			alternateVersionCheckRequest = NULL;
+			alternateVersionCheckRequest = nullptr;
 	}
 }
 
-bool Client::CheckUpdate(void *updateRequest, bool checkSession)
+bool Client::CheckUpdate(http::Request *updateRequest, bool checkSession)
 {
 	//Check status on version check request
-	if (http_async_req_status(updateRequest))
+	if (updateRequest->CheckDone())
 	{
 		int status;
-		int dataLength;
-		char * data = http_async_req_stop(updateRequest, &status, &dataLength);
+		ByteString data = updateRequest->Finish(&status);
 
 		if (status != 200)
 		{
-			free(data);
+			//free(data);
+			if (usingAltUpdateServer && !checkSession)
+				this->messageOfTheDay = String::Build("HTTP Error ", status, " while checking for updates: ", http::StatusText(status));
 		}
-		else if(data)
+		else if(data.size())
 		{
 			std::istringstream dataStream(data);
 
@@ -777,10 +752,10 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 				Json::Value notificationsArray = objDocument["Notifications"];
 				for (Json::UInt j = 0; j < notificationsArray.size(); j++)
 				{
-					std::string notificationLink = notificationsArray[j]["Link"].asString();
-					std::string notificationText = notificationsArray[j]["Text"].asString();
+					ByteString notificationLink = notificationsArray[j]["Link"].asString();
+					String notificationText = ByteString(notificationsArray[j]["Text"].asString()).FromUtf8();
 
-					std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText, notificationLink);
+					std::pair<String, ByteString> item = std::pair<String, ByteString>(notificationText, notificationLink);
 					AddServerNotification(item);
 				}
 
@@ -788,45 +763,46 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 				//MOTD
 				if (!usingAltUpdateServer || !checkSession)
 				{
-					this->messageOfTheDay = objDocument["MessageOfTheDay"].asString();
+					this->messageOfTheDay = ByteString(objDocument["MessageOfTheDay"].asString()).FromUtf8();
 					notifyMessageOfTheDay();
 
 #ifndef IGNORE_UPDATES
 					//Check for updates
 					Json::Value versions = objDocument["Updates"];
-#if !defined(BETA) && !defined(SNAPSHOT)
+#ifndef SNAPSHOT
 					Json::Value stableVersion = versions["Stable"];
 					int stableMajor = stableVersion["Major"].asInt();
 					int stableMinor = stableVersion["Minor"].asInt();
 					int stableBuild = stableVersion["Build"].asInt();
-					std::string stableFile = stableVersion["File"].asString();
-					std::string stableChangelog = stableVersion["Changelog"].asString();
-					if (stableMajor > SAVE_VERSION || (stableMinor > MINOR_VERSION && stableMajor == SAVE_VERSION) || stableBuild > BUILD_NUM)
+					ByteString stableFile = stableVersion["File"].asString();
+					String stableChangelog = ByteString(stableVersion["Changelog"].asString()).FromUtf8();
+					if (stableBuild > BUILD_NUM)
 					{
 						updateAvailable = true;
 						updateInfo = UpdateInfo(stableMajor, stableMinor, stableBuild, stableFile, stableChangelog, UpdateInfo::Stable);
 					}
 #endif
 
-#ifdef BETA
-					Json::Value betaVersion = versions["Beta"];
-					int betaMajor = betaVersion["Major"].asInt();
-					int betaMinor = betaVersion["Minor"].asInt();
-					int betaBuild = betaVersion["Build"].asInt();
-					std::string betaFile = betaVersion["File"].asString();
-					std::string betaChangelog = betaVersion["Changelog"].asString();
-					if (betaMajor > SAVE_VERSION || (betaMinor > MINOR_VERSION && betaMajor == SAVE_VERSION) || betaBuild > BUILD_NUM)
+					if (!updateAvailable)
 					{
-						updateAvailable = true;
-						updateInfo = UpdateInfo(betaMajor, betaMinor, betaBuild, betaFile, betaChangelog, UpdateInfo::Beta);
+						Json::Value betaVersion = versions["Beta"];
+						int betaMajor = betaVersion["Major"].asInt();
+						int betaMinor = betaVersion["Minor"].asInt();
+						int betaBuild = betaVersion["Build"].asInt();
+						ByteString betaFile = betaVersion["File"].asString();
+						String betaChangelog = ByteString(betaVersion["Changelog"].asString()).FromUtf8();
+						if (betaBuild > BUILD_NUM)
+						{
+							updateAvailable = true;
+							updateInfo = UpdateInfo(betaMajor, betaMinor, betaBuild, betaFile, betaChangelog, UpdateInfo::Beta);
+						}
 					}
-#endif
 
-#ifdef SNAPSHOT
+#if defined(SNAPSHOT) || MOD_ID > 0
 					Json::Value snapshotVersion = versions["Snapshot"];
 					int snapshotSnapshot = snapshotVersion["Snapshot"].asInt();
-					std::string snapshotFile = snapshotVersion["File"].asString();
-					std::string snapshotChangelog = snapshotVersion["Changelog"].asString();
+					ByteString snapshotFile = snapshotVersion["File"].asString();
+					String snapshotChangelog = ByteString(snapshotVersion["Changelog"].asString()).FromUtf8();
 					if (snapshotSnapshot > SNAPSHOT_ID)
 					{
 						updateAvailable = true;
@@ -845,8 +821,6 @@ bool Client::CheckUpdate(void *updateRequest, bool checkSession)
 			{
 				//Do nothing
 			}
-
-			free(data);
 		}
 		return true;
 	}
@@ -882,7 +856,7 @@ void Client::notifyAuthUserChanged()
 	}
 }
 
-void Client::notifyNewNotification(std::pair<std::string, std::string> notification)
+void Client::notifyNewNotification(std::pair<String, ByteString> notification)
 {
 	for (std::vector<ClientListener*>::iterator iterator = listeners.begin(), end = listeners.end(); iterator != end; ++iterator)
 	{
@@ -911,12 +885,12 @@ void Client::WritePrefs()
 {
 	std::ofstream configFile;
 	configFile.open("powder.pref", std::ios::trunc);
-	
+
 	if (configFile)
 	{
-		if (authUser.ID)
+		if (authUser.UserID)
 		{
-			preferences["User"]["ID"] = authUser.ID;
+			preferences["User"]["ID"] = authUser.UserID;
 			preferences["User"]["SessionID"] = authUser.SessionID;
 			preferences["User"]["SessionKey"] = authUser.SessionKey;
 			preferences["User"]["Username"] = authUser.Username;
@@ -939,9 +913,18 @@ void Client::WritePrefs()
 
 void Client::Shutdown()
 {
-	RequestBroker::Ref().Shutdown();
-	ClearThumbnailRequests();
-	http_done();
+	if (versionCheckRequest)
+	{
+		versionCheckRequest->Cancel();
+	}
+	if (alternateVersionCheckRequest)
+	{
+		alternateVersionCheckRequest->Cancel();
+	}
+
+#ifndef NOHTTP
+	http::RequestManager::Ref().Shutdown();
+#endif
 
 	//Save config
 	WritePrefs();
@@ -969,45 +952,39 @@ RequestStatus Client::UploadSave(SaveInfo & save)
 	unsigned int gameDataLength;
 	char * gameData = NULL;
 	int dataStatus;
-	char * data;
-	int dataLength = 0;
-	std::stringstream userIDStream;
-	userIDStream << authUser.ID;
-	if (authUser.ID)
+	ByteString data;
+	ByteString userID = ByteString::Build(authUser.UserID);
+	if (authUser.UserID)
 	{
 		if (!save.GetGameSave())
 		{
 			lastError = "Empty game save";
 			return RequestFailure;
 		}
+
 		save.SetID(0);
 
 		gameData = save.GetGameSave()->Serialise(gameDataLength);
 
 		if (!gameData)
 		{
-			lastError = "Cannot upload game save";
+			lastError = "Cannot serialize game save";
 			return RequestFailure;
 		}
+#if defined(SNAPSHOT) || defined(BETA) || defined(DEBUG) || MOD_ID > 0
+		else if (save.gameSave->fromNewerVersion && save.GetPublished())
+		{
+			lastError = "Cannot publish save, incompatible with latest release version.";
+			return RequestFailure;
+		}
+#endif
 
-		char *saveName = new char[save.GetName().length() + 1];
-		std::strcpy (saveName, save.GetName().c_str());
-		char *saveDescription = new char[save.GetDescription().length() + 1];
-		std::strcpy (saveDescription, save.GetDescription().c_str());
-		char *userid = new char[userIDStream.str().length() + 1];
-		std::strcpy (userid, userIDStream.str().c_str());
-		char *session = new char[authUser.SessionID.length() + 1];
-		std::strcpy (session, authUser.SessionID.c_str());
-
-		const char *const postNames[] = { "Name", "Description", "Data:save.bin", "Publish", NULL };
-		const char *const postDatas[] = { saveName, saveDescription, gameData, (char *)(save.GetPublished()?"Public":"Private") };
-		size_t postLengths[] = { save.GetName().length(), save.GetDescription().length(), gameDataLength, (size_t)(save.GetPublished()?6:7) };
-		data = http_multipart_post("http://" SERVER "/Save.api", postNames, postDatas, postLengths, userid, NULL, session, &dataStatus, &dataLength);
-
-		delete[] saveDescription;
-		delete[] saveName;
-		delete[] userid;
-		delete[] session;
+		data = http::Request::SimpleAuth(SCHEME SERVER "/Save.api", &dataStatus, userID, authUser.SessionID, {
+			{ "Name", save.GetName().ToUtf8() },
+			{ "Description", save.GetDescription().ToUtf8() },
+			{ "Data:save.bin", ByteString(gameData, gameData + gameDataLength) },
+			{ "Publish", save.GetPublished() ? "Public" : "Private" },
+		});
 	}
 	else
 	{
@@ -1018,7 +995,7 @@ RequestStatus Client::UploadSave(SaveInfo & save)
 	RequestStatus ret = ParseServerReturn(data, dataStatus, false);
 	if (ret == RequestOkay)
 	{
-		int saveID = format::StringToNumber<int>(data+3);
+		int saveID = ByteString(data.begin() + 3, data.end()).ToNumber<int>();
 		if (!saveID)
 		{
 			lastError = "Server did not return Save ID";
@@ -1027,14 +1004,13 @@ RequestStatus Client::UploadSave(SaveInfo & save)
 		else
 			save.SetID(saveID);
 	}
-	free(data);
 	delete[] gameData;
 	return ret;
 }
 
-void Client::MoveStampToFront(std::string stampID)
+void Client::MoveStampToFront(ByteString stampID)
 {
-	for (std::list<std::string>::iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
+	for (std::list<ByteString>::iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
 	{
 		if((*iterator) == stampID)
 		{
@@ -1046,49 +1022,34 @@ void Client::MoveStampToFront(std::string stampID)
 	updateStamps();
 }
 
-SaveFile * Client::GetStamp(std::string stampID)
+SaveFile * Client::GetStamp(ByteString stampID)
 {
-	std::string stampFile = std::string(STAMPS_DIR PATH_SEP + stampID + ".stm");
-	SaveFile * file = new SaveFile(stampID);
-	if (!FileExists(stampFile))
-		stampFile = stampID;
-	if (FileExists(stampFile))
-	{
-		try
-		{
-			GameSave * tempSave = new GameSave(ReadFile(stampFile));
-			file->SetGameSave(tempSave);
-		}
-		catch (ParseException & e)
-		{
-			std::cerr << "Client: Invalid stamp file, " << stampID << " " << std::string(e.what()) << std::endl;
-			file->SetLoadingError(e.what());
-		}
-	}
-	return file;
+	ByteString stampFile = ByteString(STAMPS_DIR PATH_SEP + stampID + ".stm");
+	SaveFile *saveFile = LoadSaveFile(stampFile);
+	if (!saveFile)
+		saveFile = LoadSaveFile(stampID);
+	else
+		saveFile->SetDisplayName(stampID.FromUtf8());
+	return saveFile;
 }
 
-void Client::DeleteStamp(std::string stampID)
+void Client::DeleteStamp(ByteString stampID)
 {
-	for (std::list<std::string>::iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
+	for (std::list<ByteString>::iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
 	{
-		if((*iterator) == stampID)
+		if ((*iterator) == stampID)
 		{
-			std::stringstream stampFilename;
-			stampFilename << STAMPS_DIR;
-			stampFilename << PATH_SEP;
-			stampFilename << stampID;
-			stampFilename << ".stm";
-			remove(stampFilename.str().c_str());
+			ByteString stampFilename = ByteString::Build(STAMPS_DIR, PATH_SEP, stampID, ".stm");
+			remove(stampFilename.c_str());
 			stampIDs.erase(iterator);
-			return;
+			break;
 		}
 	}
 
 	updateStamps();
 }
 
-std::string Client::AddStamp(GameSave * saveData)
+ByteString Client::AddStamp(GameSave * saveData)
 {
 	unsigned t=(unsigned)time(NULL);
 	if (lastStampTime!=t)
@@ -1098,29 +1059,40 @@ std::string Client::AddStamp(GameSave * saveData)
 	}
 	else
 		lastStampName++;
-	std::stringstream saveID;
-	//sprintf(saveID, "%08x%02x", lastStampTime, lastStampName);
-	saveID
-	<< std::setw(8) << std::setfill('0') << std::hex << lastStampTime
-	<< std::setw(2) << std::setfill('0') << std::hex << lastStampName;
+	ByteString saveID = ByteString::Build(Format::Hex(Format::Width(lastStampTime, 8)), Format::Hex(Format::Width(lastStampName, 2)));
+	ByteString filename = STAMPS_DIR PATH_SEP + saveID + ".stm";
 
 	MakeDirectory(STAMPS_DIR);
 
+	Json::Value stampInfo;
+	stampInfo["type"] = "stamp";
+	stampInfo["username"] = authUser.Username;
+	stampInfo["name"] = filename;
+	stampInfo["date"] = (Json::Value::UInt64)time(NULL);
+	if (authors.size() != 0)
+	{
+		// This is a stamp, always append full authorship info (even if same user)
+		stampInfo["links"].append(Client::Ref().authors);
+	}
+	saveData->authors = stampInfo;
+
 	unsigned int gameDataLength;
 	char * gameData = saveData->Serialise(gameDataLength);
+	if (gameData == NULL)
+		return "";
 
 	std::ofstream stampStream;
-	stampStream.open(std::string(STAMPS_DIR PATH_SEP + saveID.str()+".stm").c_str(), std::ios::binary);
+	stampStream.open(filename.c_str(), std::ios::binary);
 	stampStream.write((const char *)gameData, gameDataLength);
 	stampStream.close();
 
 	delete[] gameData;
 
-	stampIDs.push_front(saveID.str());
+	stampIDs.push_front(saveID);
 
 	updateStamps();
 
-	return saveID.str();
+	return saveID;
 }
 
 void Client::updateStamps()
@@ -1128,8 +1100,8 @@ void Client::updateStamps()
 	MakeDirectory(STAMPS_DIR);
 
 	std::ofstream stampsStream;
-	stampsStream.open(std::string(STAMPS_DIR PATH_SEP "stamps.def").c_str(), std::ios::binary);
-	for (std::list<std::string>::const_iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
+	stampsStream.open(ByteString(STAMPS_DIR PATH_SEP "stamps.def").c_str(), std::ios::binary);
+	for (std::list<ByteString>::const_iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator)
 	{
 		stampsStream.write((*iterator).c_str(), 10);
 	}
@@ -1148,14 +1120,12 @@ void Client::RescanStamps()
 		stampIDs.clear();
 		while ((entry = readdir(directory)))
 		{
-			if(strncmp(entry->d_name, "..", 3) && strncmp(entry->d_name, ".", 2) && strstr(entry->d_name, ".stm") && strlen(entry->d_name) == 14)
-			{
-				char stampname[11];
-				strncpy(stampname, entry->d_name, 10);
-				stampIDs.push_front(stampname);
-			}
+			ByteString name = entry->d_name;
+			if(name != ".." && name != "." && name.EndsWith(".stm") && name.size() == 14)
+				stampIDs.push_front(name.Substr(0, 10));
 		}
 		closedir(directory);
+		stampIDs.sort(std::greater<ByteString>());
 		updateStamps();
 	}
 }
@@ -1165,19 +1135,19 @@ int Client::GetStampsCount()
 	return stampIDs.size();
 }
 
-std::vector<std::string> Client::GetStamps(int start, int count)
+std::vector<ByteString> Client::GetStamps(int start, int count)
 {
 	int size = (int)stampIDs.size();
 	if (start+count > size)
 	{
 		if(start > size)
-			return std::vector<std::string>();
+			return std::vector<ByteString>();
 		count = size-start;
 	}
 
-	std::vector<std::string> stampRange;
+	std::vector<ByteString> stampRange;
 	int index = 0;
-	for (std::list<std::string>::const_iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator, ++index)
+	for (std::list<ByteString>::const_iterator iterator = stampIDs.begin(), end = stampIDs.end(); iterator != end; ++iterator, ++index)
 	{
 		if(index>=start && index < start+count)
 			stampRange.push_back(*iterator);
@@ -1189,30 +1159,16 @@ RequestStatus Client::ExecVote(int saveID, int direction)
 {
 	lastError = "";
 	int dataStatus;
-	char * data;
-	int dataLength = 0;
+	ByteString data;
 
-	if (authUser.ID)
+	if (authUser.UserID)
 	{
-		char * directionText = (char*)(direction==1?"Up":"Down");
-		std::string saveIDText = format::NumberToString<int>(saveID);
-		std::string userIDText = format::NumberToString<int>(authUser.ID);
-
-		char *id = new char[saveIDText.length() + 1];
-		std::strcpy(id, saveIDText.c_str());
-		char *userid = new char[userIDText.length() + 1];
-		std::strcpy(userid, userIDText.c_str());
-		char *session = new char[authUser.SessionID.length() + 1];
-		std::strcpy(session, authUser.SessionID.c_str());
-
-		const char *const postNames[] = { "ID", "Action", NULL };
-		const char *const postDatas[] = { id, directionText };
-		size_t postLengths[] = { saveIDText.length(), strlen(directionText) };
-		data = http_multipart_post("http://" SERVER "/Vote.api", postNames, postDatas, postLengths, userid, NULL, session, &dataStatus, &dataLength);
-
-		delete[] id;
-		delete[] userid;
-		delete[] session;
+		ByteString saveIDText = ByteString::Build(saveID);
+		ByteString userIDText = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(SCHEME SERVER "/Vote.api", &dataStatus, userIDText, authUser.SessionID, {
+			{ "ID", saveIDText },
+			{ "Action", direction == 1 ? "Up" : "Down" },
+		});
 	}
 	else
 	{
@@ -1223,131 +1179,35 @@ RequestStatus Client::ExecVote(int saveID, int direction)
 	return ret;
 }
 
-unsigned char * Client::GetSaveData(int saveID, int saveDate, int & dataLength)
+std::vector<unsigned char> Client::GetSaveData(int saveID, int saveDate)
 {
 	lastError = "";
 	int dataStatus;
-	char *data;
-	dataLength = 0;
-	std::stringstream urlStream;
+	ByteString data;
+	ByteString urlStr;
 	if (saveDate)
-		urlStream << "http://" << STATICSERVER << "/" << saveID << "_" << saveDate << ".cps";
+		urlStr = ByteString::Build(STATICSCHEME, STATICSERVER, "/", saveID, "_", saveDate, ".cps");
 	else
-		urlStream << "http://" << STATICSERVER << "/" << saveID << ".cps";
+		urlStr = ByteString::Build(STATICSCHEME, STATICSERVER, "/", saveID, ".cps");
 
-	char *url = new char[urlStream.str().length() + 1];
-	std::strcpy(url, urlStream.str().c_str());
-	data = http_simple_get(url, &dataStatus, &dataLength);
-	delete[] url;
+	data = http::Request::Simple(urlStr, &dataStatus);
 
 	// will always return failure
 	ParseServerReturn(data, dataStatus, false);
-	if (data && dataStatus == 200)
-		return (unsigned char *)data;
-	free(data);
-	return NULL;
-}
-
-std::vector<unsigned char> Client::GetSaveData(int saveID, int saveDate)
-{
-	int dataSize;
-	unsigned char * data = GetSaveData(saveID, saveDate, dataSize);
-	if (!data)
-		return std::vector<unsigned char>();
-
-	std::vector<unsigned char> saveData(data, data+dataSize);
-	delete[] data;
-	return saveData;
-}
-
-RequestBroker::Request * Client::GetSaveDataAsync(int saveID, int saveDate)
-{
-	std::stringstream urlStream;
-	if(saveDate){
-		urlStream << "http://" << STATICSERVER << "/" << saveID << "_" << saveDate << ".cps";
-	} else {
-		urlStream << "http://" << STATICSERVER << "/" << saveID << ".cps";
+	if (data.size() && dataStatus == 200)
+	{
+		return std::vector<unsigned char>(data.begin(), data.end());
 	}
-	return new WebRequest(urlStream.str());
+	return std::vector<unsigned char>();
 }
 
-RequestBroker::Request * Client::SaveUserInfoAsync(UserInfo info)
-{
-	class StatusParser: public APIResultParser
-	{
-		virtual void * ProcessResponse(unsigned char * data, int dataLength)
-		{
-			try
-			{
-				std::istringstream dataStream((char*)data);
-				Json::Value objDocument;
-				dataStream >> objDocument;
-				return (void*)(objDocument["Status"].asInt() == 1);
-			}
-			catch (std::exception & e)
-			{
-				return 0;
-			}
-		}
-		virtual void Cleanup(void * objectPtr)
-		{
-			//delete (UserInfo*)objectPtr;
-		}
-		virtual ~StatusParser() { }
-	};
-	std::map<std::string, std::string> postData;
-	postData.insert(std::pair<std::string, std::string>("Location", info.location));
-	postData.insert(std::pair<std::string, std::string>("Biography", info.biography));
-	return new APIRequest("http://" SERVER "/Profile.json", postData, new StatusParser());
-}
-
-RequestBroker::Request * Client::GetUserInfoAsync(std::string username)
-{
-	class UserInfoParser: public APIResultParser
-	{
-		virtual void * ProcessResponse(unsigned char * data, int dataLength)
-		{
-			try
-			{
-				std::istringstream dataStream((char*)data);
-				Json::Value objDocument;
-				dataStream >> objDocument;
-				Json::Value tempUser = objDocument["User"];
-				return new UserInfo(tempUser["ID"].asInt(),
-									tempUser["Age"].asInt(),
-									tempUser["Username"].asString(),
-									tempUser["Biography"].asString(),
-									tempUser["Location"].asString(),
-									tempUser["Website"].asString(),
-									tempUser["Saves"]["Count"].asInt(),
-									tempUser["Saves"]["AverageScore"].asInt(),
-									tempUser["Saves"]["HighestScore"].asInt(),
-									tempUser["Forum"]["Topics"].asInt(),
-									tempUser["Forum"]["Replies"].asInt(),
-									tempUser["Forum"]["Reputation"].asInt());
-			}
-			catch (std::exception &e)
-			{
-				return 0;
-			}
-		}
-		virtual void Cleanup(void * objectPtr)
-		{
-			delete (UserInfo*)objectPtr;
-		}
-		virtual ~UserInfoParser() { }
-	};
-	return new APIRequest("http://" SERVER "/User.json?Name=" + username, new UserInfoParser());
-}
-
-LoginStatus Client::Login(std::string username, std::string password, User & user)
+LoginStatus Client::Login(ByteString username, ByteString password, User & user)
 {
 	lastError = "";
-	std::stringstream hashStream;
 	char passwordHash[33];
 	char totalHash[33];
 
-	user.ID = 0;
+	user.UserID = 0;
 	user.Username = "";
 	user.SessionID = "";
 	user.SessionKey = "";
@@ -1355,16 +1215,17 @@ LoginStatus Client::Login(std::string username, std::string password, User & use
 	//Doop
 	md5_ascii(passwordHash, (const unsigned char *)password.c_str(), password.length());
 	passwordHash[32] = 0;
-	hashStream << username << "-" << passwordHash;
-	md5_ascii(totalHash, (const unsigned char *)(hashStream.str().c_str()), hashStream.str().length());
+	ByteString total = ByteString::Build(username, "-", passwordHash);
+	md5_ascii(totalHash, (const unsigned char *)(total.c_str()), total.size());
 	totalHash[32] = 0;
 
-	char * data;
-	int dataStatus, dataLength;
-	const char *const postNames[] = { "Username", "Hash", NULL };
-	const char *const postDatas[] = { (char*)username.c_str(), totalHash };
-	size_t postLengths[] = { username.length(), 32 };
-	data = http_multipart_post("http://" SERVER "/Login.json", postNames, postDatas, postLengths, NULL, NULL, NULL, &dataStatus, &dataLength);
+	ByteString data;
+	int dataStatus;
+	data = http::Request::Simple(SCHEME SERVER "/Login.json", &dataStatus, {
+		{ "Username", username },
+		{ "Hash", totalHash },
+	});
+
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
 	if (ret == RequestOkay)
 	{
@@ -1373,28 +1234,27 @@ LoginStatus Client::Login(std::string username, std::string password, User & use
 			std::istringstream dataStream(data);
 			Json::Value objDocument;
 			dataStream >> objDocument;
-			free(data);
 
 			int userIDTemp = objDocument["UserID"].asInt();
-			std::string sessionIDTemp = objDocument["SessionID"].asString();
-			std::string sessionKeyTemp = objDocument["SessionKey"].asString();
-			std::string userElevationTemp = objDocument["Elevation"].asString();
+			ByteString sessionIDTemp = objDocument["SessionID"].asString();
+			ByteString sessionKeyTemp = objDocument["SessionKey"].asString();
+			ByteString userElevationTemp = objDocument["Elevation"].asString();
 
 			Json::Value notificationsArray = objDocument["Notifications"];
 			for (Json::UInt j = 0; j < notificationsArray.size(); j++)
 			{
-				std::string notificationLink = notificationsArray[j]["Link"].asString();
-				std::string notificationText = notificationsArray[j]["Text"].asString();
+				ByteString notificationLink = notificationsArray[j]["Link"].asString();
+				String notificationText = ByteString(notificationsArray[j]["Text"].asString()).FromUtf8();
 
-				std::pair<std::string, std::string> item = std::pair<std::string, std::string>(notificationText, notificationLink);
+				std::pair<String, ByteString> item = std::pair<String, ByteString>(notificationText, notificationLink);
 				AddServerNotification(item);
 			}
 
 			user.Username = username;
-			user.ID = userIDTemp;
+			user.UserID = userIDTemp;
 			user.SessionID = sessionIDTemp;
 			user.SessionKey = sessionKeyTemp;
-			std::string userElevation = userElevationTemp;
+			ByteString userElevation = userElevationTemp;
 			if(userElevation == "Admin")
 				user.UserElevation = User::ElevationAdmin;
 			else if(userElevation == "Mod")
@@ -1405,26 +1265,23 @@ LoginStatus Client::Login(std::string username, std::string password, User & use
 		}
 		catch (std::exception &e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 			return LoginError;
 		}
 	}
-	free(data);
 	return LoginError;
 }
 
 RequestStatus Client::DeleteSave(int saveID)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Delete.json?ID=" << saveID << "&Mode=Delete&Key=" << authUser.SessionKey;
-	if(authUser.ID)
+	ByteString data;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/Delete.json?ID=", saveID, "&Mode=Delete&Key=", authUser.SessionKey);
+	int dataStatus;
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
@@ -1432,26 +1289,21 @@ RequestStatus Client::DeleteSave(int saveID)
 		return RequestFailure;
 	}
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
-	free(data);
 	return ret;
 }
 
-RequestStatus Client::AddComment(int saveID, std::string comment)
+RequestStatus Client::AddComment(int saveID, String comment)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Comments.json?ID=" << saveID;
-	if(authUser.ID)
+	ByteString data;
+	int dataStatus;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/Comments.json?ID=", saveID);
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		
-		const char *const postNames[] = { "Comment", NULL };
-		const char *const postDatas[] = { (char*)(comment.c_str()) };
-		size_t postLengths[] = { comment.length() };
-		data = http_multipart_post((char *)urlStream.str().c_str(), postNames, postDatas, postLengths, (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID, {
+			{ "Comment", comment.ToUtf8() },
+		});
 	}
 	else
 	{
@@ -1459,24 +1311,22 @@ RequestStatus Client::AddComment(int saveID, std::string comment)
 		return RequestFailure;
 	}
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
-	free(data);
 	return ret;
 }
 
 RequestStatus Client::FavouriteSave(int saveID, bool favourite)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Favourite.json?ID=" << saveID << "&Key=" << authUser.SessionKey;
+	ByteStringBuilder urlStream;
+	ByteString data;
+	int dataStatus;
+	urlStream << SCHEME << SERVER << "/Browse/Favourite.json?ID=" << saveID << "&Key=" << authUser.SessionKey;
 	if(!favourite)
 		urlStream << "&Mode=Remove";
-	if(authUser.ID)
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(urlStream.Build(), &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
@@ -1484,26 +1334,21 @@ RequestStatus Client::FavouriteSave(int saveID, bool favourite)
 		return RequestFailure;
 	}
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
-	free(data);
 	return ret;
 }
 
-RequestStatus Client::ReportSave(int saveID, std::string message)
+RequestStatus Client::ReportSave(int saveID, String message)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Report.json?ID=" << saveID << "&Key=" << authUser.SessionKey;
-	if(authUser.ID)
+	ByteString data;
+	int dataStatus;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/Report.json?ID=", saveID, "&Key=", authUser.SessionKey);
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-
-		const char *const postNames[] = { "Reason", NULL };
-		const char *const postDatas[] = { (char*)(message.c_str()) };
-		size_t postLengths[] = { message.length() };
-		data = http_multipart_post((char *)urlStream.str().c_str(), postNames, postDatas, postLengths, (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID, {
+			{ "Reason", message.ToUtf8() },
+		});
 	}
 	else
 	{
@@ -1511,22 +1356,19 @@ RequestStatus Client::ReportSave(int saveID, std::string message)
 		return RequestFailure;
 	}
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
-	free(data);
 	return ret;
 }
 
 RequestStatus Client::UnpublishSave(int saveID)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Delete.json?ID=" << saveID << "&Mode=Unpublish&Key=" << authUser.SessionKey;
-	if(authUser.ID)
+	ByteString data;
+	int dataStatus;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/Delete.json?ID=", saveID, "&Mode=Unpublish&Key=", authUser.SessionKey);
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
@@ -1534,57 +1376,53 @@ RequestStatus Client::UnpublishSave(int saveID)
 		return RequestFailure;
 	}
 	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
-	free(data);
 	return ret;
 }
 
 RequestStatus Client::PublishSave(int saveID)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	char *data;
+	ByteString data;
 	int dataStatus;
-	urlStream << "http://" << SERVER << "/Browse/View.html?ID=" << saveID << "&Key=" << authUser.SessionKey;
-	if (authUser.ID)
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/View.json?ID=", saveID, "&Key=", authUser.SessionKey);
+	if (authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		const char *const postNames[] = { "ActionPublish", NULL };
-		const char *const postDatas[] = { "" };
-		size_t postLengths[] = { 1 };
-		data = http_multipart_post(urlStream.str().c_str(), postNames, postDatas, postLengths, userIDStream.str().c_str(), NULL, authUser.SessionID.c_str(), &dataStatus, NULL);	}
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID, {
+			{ "ActionPublish", "bagels" },
+		});
+	}
 	else
 	{
 		lastError = "Not authenticated";
 		return RequestFailure;
 	}
-	RequestStatus ret = ParseServerReturn(data, dataStatus, false);
-	free(data);
+	RequestStatus ret = ParseServerReturn(data, dataStatus, true);
 	return ret;
 }
 
 SaveInfo * Client::GetSave(int saveID, int saveDate)
 {
 	lastError = "";
-	std::stringstream urlStream;
-	urlStream << "http://" << SERVER  << "/Browse/View.json?ID=" << saveID;
+	ByteStringBuilder urlStream;
+	urlStream << SCHEME << SERVER  << "/Browse/View.json?ID=" << saveID;
 	if(saveDate)
 	{
 		urlStream << "&Date=" << saveDate;
 	}
-	char * data;
-	int dataStatus, dataLength;
-	if(authUser.ID)
+	ByteString data;
+	int dataStatus;
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		
+		data = http::Request::SimpleAuth(urlStream.Build(), &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
-		data = http_simple_get((char *)urlStream.str().c_str(), &dataStatus, &dataLength);
+		data = http::Request::Simple(urlStream.Build(), &dataStatus);
 	}
-	if(dataStatus == 200 && data)
+	if(dataStatus == 200 && data.size())
 	{
 		try
 		{
@@ -1596,10 +1434,11 @@ SaveInfo * Client::GetSave(int saveID, int saveDate)
 			int tempScoreUp = objDocument["ScoreUp"].asInt();
 			int tempScoreDown = objDocument["ScoreDown"].asInt();
 			int tempMyScore = objDocument["ScoreMine"].asInt();
-			std::string tempUsername = objDocument["Username"].asString();
-			std::string tempName = objDocument["Name"].asString();
-			std::string tempDescription = objDocument["Description"].asString();
-			int tempDate = objDocument["Date"].asInt();
+			ByteString tempUsername = objDocument["Username"].asString();
+			String tempName = ByteString(objDocument["Name"].asString()).FromUtf8();
+			String tempDescription = ByteString(objDocument["Description"].asString()).FromUtf8();
+			int tempCreatedDate = objDocument["DateCreated"].asInt();
+			int tempUpdatedDate = objDocument["Date"].asInt();
 			bool tempPublished = objDocument["Published"].asBool();
 			bool tempFavourite = objDocument["Favourite"].asBool();
 			int tempComments = objDocument["Comments"].asInt();
@@ -1607,157 +1446,68 @@ SaveInfo * Client::GetSave(int saveID, int saveDate)
 			int tempVersion = objDocument["Version"].asInt();
 
 			Json::Value tagsArray = objDocument["Tags"];
-			std::list<std::string> tempTags;
+			std::list<ByteString> tempTags;
 			for (Json::UInt j = 0; j < tagsArray.size(); j++)
 				tempTags.push_back(tagsArray[j].asString());
 
-			SaveInfo * tempSave = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown,
-			                                   tempMyScore, tempUsername, tempName, tempDescription,
-			                                   tempPublished, tempTags);
+			SaveInfo * tempSave = new SaveInfo(tempID, tempCreatedDate, tempUpdatedDate, tempScoreUp,
+			                                   tempScoreDown, tempMyScore, tempUsername, tempName,
+			                                   tempDescription, tempPublished, tempTags);
 			tempSave->Comments = tempComments;
 			tempSave->Favourite = tempFavourite;
 			tempSave->Views = tempViews;
 			tempSave->Version = tempVersion;
-			free(data);
 			return tempSave;
 		}
 		catch (std::exception & e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
-			free(data);
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 			return NULL;
 		}
 	}
 	else
 	{
-		free(data);
-		lastError = http_ret_text(dataStatus);
+		lastError = http::StatusText(dataStatus);
 	}
 	return NULL;
 }
 
-RequestBroker::Request * Client::GetSaveAsync(int saveID, int saveDate)
+SaveFile * Client::LoadSaveFile(ByteString filename)
 {
-	std::stringstream urlStream;
-	urlStream << "http://" << SERVER  << "/Browse/View.json?ID=" << saveID;
-	if(saveDate)
+	if (!FileExists(filename))
+		return nullptr;
+	SaveFile * file = new SaveFile(filename);
+	try
 	{
-		urlStream << "&Date=" << saveDate;
+		GameSave * tempSave = new GameSave(ReadFile(filename));
+		file->SetGameSave(tempSave);
 	}
-
-	class SaveInfoParser: public APIResultParser
+	catch (ParseException & e)
 	{
-		virtual void * ProcessResponse(unsigned char * data, int dataLength)
-		{
-			try
-			{
-				std::istringstream dataStream((char*)data);
-				Json::Value objDocument;
-				dataStream >> objDocument;
-
-				int tempID = objDocument["ID"].asInt();
-				int tempScoreUp = objDocument["ScoreUp"].asInt();
-				int tempScoreDown = objDocument["ScoreDown"].asInt();
-				int tempMyScore = objDocument["ScoreMine"].asInt();
-				std::string tempUsername = objDocument["Username"].asString();
-				std::string tempName = objDocument["Name"].asString();
-				std::string tempDescription = objDocument["Description"].asString();
-				int tempDate = objDocument["Date"].asInt();
-				bool tempPublished = objDocument["Published"].asBool();
-				bool tempFavourite = objDocument["Favourite"].asBool();
-				int tempComments = objDocument["Comments"].asInt();
-				int tempViews = objDocument["Views"].asInt();
-				int tempVersion = objDocument["Version"].asInt();
-
-				Json::Value tagsArray = objDocument["Tags"];
-				std::list<std::string> tempTags;
-				for (Json::UInt j = 0; j < tagsArray.size(); j++)
-					tempTags.push_back(tagsArray[j].asString());
-
-				SaveInfo * tempSave = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown,
-				                               tempMyScore, tempUsername, tempName, tempDescription,
-				                               tempPublished, tempTags);
-				tempSave->Comments = tempComments;
-				tempSave->Favourite = tempFavourite;
-				tempSave->Views = tempViews;
-				tempSave->Version = tempVersion;
-				return tempSave;
-			}
-			catch (std::exception &e)
-			{
-				return NULL;
-			}
-		}
-		virtual void Cleanup(void * objectPtr)
-		{
-			delete (SaveInfo*)objectPtr;
-		}
-		virtual ~SaveInfoParser() { }
-	};
-	return new APIRequest(urlStream.str(), new SaveInfoParser());
+		std::cerr << "Client: Invalid save file '" << filename << "': " << e.what() << std::endl;
+		file->SetLoadingError(ByteString(e.what()).FromUtf8());
+	}
+	return file;
 }
 
-RequestBroker::Request * Client::GetCommentsAsync(int saveID, int start, int count)
-{
-	class CommentsParser: public APIResultParser
-	{
-		virtual void * ProcessResponse(unsigned char * data, int dataLength)
-		{
-			std::vector<SaveComment*> * commentArray = new std::vector<SaveComment*>();
-			try
-			{
-				std::istringstream dataStream((char*)data);
-				Json::Value commentsArray;
-				dataStream >> commentsArray;
-
-				for (Json::UInt j = 0; j < commentsArray.size(); j++)
-				{
-					int userID = format::StringToNumber<int>(commentsArray[j]["UserID"].asString());
-					std::string username = commentsArray[j]["Username"].asString();
-					std::string formattedUsername = commentsArray[j]["FormattedUsername"].asString();
-					if (formattedUsername == "jacobot")
-						formattedUsername = "\bt" + formattedUsername;
-					std::string comment = commentsArray[j]["Text"].asString();
-					commentArray->push_back(new SaveComment(userID, username, formattedUsername, comment));
-				}
-				return commentArray;
-			}
-			catch (std::exception &e)
-			{
-				delete commentArray;
-				return NULL;
-			}
-		}
-		virtual void Cleanup(void * objectPtr)
-		{
-			delete (std::vector<SaveComment*>*)objectPtr;
-		}
-		virtual ~CommentsParser() { }
-	};
-
-	std::stringstream urlStream;
-	urlStream << "http://" << SERVER << "/Browse/Comments.json?ID=" << saveID << "&Start=" << start << "&Count=" << count;
-	return new APIRequest(urlStream.str(), new CommentsParser());
-}
-
-std::vector<std::pair<std::string, int> > * Client::GetTags(int start, int count, std::string query, int & resultCount)
+std::vector<std::pair<ByteString, int> > * Client::GetTags(int start, int count, String query, int & resultCount)
 {
 	lastError = "";
 	resultCount = 0;
-	std::vector<std::pair<std::string, int> > * tagArray = new std::vector<std::pair<std::string, int> >();
-	std::stringstream urlStream;
-	char * data;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/Tags.json?Start=" << start << "&Count=" << count;
+	std::vector<std::pair<ByteString, int> > * tagArray = new std::vector<std::pair<ByteString, int> >();
+	ByteStringBuilder urlStream;
+	ByteString data;
+	int dataStatus;
+	urlStream << SCHEME << SERVER << "/Browse/Tags.json?Start=" << start << "&Count=" << count;
 	if(query.length())
 	{
 		urlStream << "&Search_Query=";
 		if(query.length())
-			urlStream << format::URLEncode(query);
+			urlStream << format::URLEncode(query.ToUtf8());
 	}
-	
-	data = http_simple_get((char *)urlStream.str().c_str(), &dataStatus, &dataLength);
-	if(dataStatus == 200 && data)
+
+	data = http::Request::Simple(urlStream.Build(), &dataStatus);
+	if(dataStatus == 200 && data.size())
 	{
 		try
 		{
@@ -1770,37 +1520,36 @@ std::vector<std::pair<std::string, int> > * Client::GetTags(int start, int count
 			for (Json::UInt j = 0; j < tagsArray.size(); j++)
 			{
 				int tagCount = tagsArray[j]["Count"].asInt();
-				std::string tag = tagsArray[j]["Tag"].asString();
-				tagArray->push_back(std::pair<std::string, int>(tag, tagCount));
+				ByteString tag = tagsArray[j]["Tag"].asString();
+				tagArray->push_back(std::pair<ByteString, int>(tag, tagCount));
 			}
 		}
 		catch (std::exception & e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 		}
 	}
 	else
 	{
-		lastError = http_ret_text(dataStatus);
+		lastError = http::StatusText(dataStatus);
 	}
-	free(data);
 	return tagArray;
 }
 
-std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, std::string query, std::string sort, std::string category, int & resultCount)
+std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, String query, ByteString sort, ByteString category, int & resultCount)
 {
 	lastError = "";
 	resultCount = 0;
 	std::vector<SaveInfo*> * saveArray = new std::vector<SaveInfo*>();
-	std::stringstream urlStream;
-	char * data;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse.json?Start=" << start << "&Count=" << count;
+	ByteStringBuilder urlStream;
+	ByteString data;
+	int dataStatus;
+	urlStream << SCHEME << SERVER << "/Browse.json?Start=" << start << "&Count=" << count;
 	if(query.length() || sort.length())
 	{
 		urlStream << "&Search_Query=";
 		if(query.length())
-			urlStream << format::URLEncode(query);
+			urlStream << format::URLEncode(query.ToUtf8());
 		if(sort == "date")
 		{
 			if(query.length())
@@ -1812,18 +1561,17 @@ std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, std::string q
 	{
 		urlStream << "&Category=" << format::URLEncode(category);
 	}
-	if(authUser.ID)
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(urlStream.Build(), &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
-		data = http_simple_get((char *)urlStream.str().c_str(), &dataStatus, &dataLength);
+		data = http::Request::Simple(urlStream.Build(), &dataStatus);
 	}
 	ParseServerReturn(data, dataStatus, true);
-	if (dataStatus == 200 && data)
+	if (dataStatus == 200 && data.size())
 	{
 		try
 		{
@@ -1836,14 +1584,15 @@ std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, std::string q
 			for (Json::UInt j = 0; j < savesArray.size(); j++)
 			{
 				int tempID = savesArray[j]["ID"].asInt();
-				int tempDate = savesArray[j]["Date"].asInt();
+				int tempCreatedDate = savesArray[j]["Created"].asInt();
+				int tempUpdatedDate = savesArray[j]["Updated"].asInt();
 				int tempScoreUp = savesArray[j]["ScoreUp"].asInt();
 				int tempScoreDown = savesArray[j]["ScoreDown"].asInt();
-				std::string tempUsername = savesArray[j]["Username"].asString();
-				std::string tempName = savesArray[j]["Name"].asString();
+				ByteString tempUsername = savesArray[j]["Username"].asString();
+				String tempName = ByteString(savesArray[j]["Name"].asString()).FromUtf8();
 				int tempVersion = savesArray[j]["Version"].asInt();
 				bool tempPublished = savesArray[j]["Published"].asBool();
-				SaveInfo * tempSaveInfo = new SaveInfo(tempID, tempDate, tempScoreUp, tempScoreDown, tempUsername, tempName);
+				SaveInfo * tempSaveInfo = new SaveInfo(tempID, tempCreatedDate, tempUpdatedDate, tempScoreUp, tempScoreDown, tempUsername, tempName);
 				tempSaveInfo->Version = tempVersion;
 				tempSaveInfo->SetPublished(tempPublished);
 				saveArray->push_back(tempSaveInfo);
@@ -1851,40 +1600,23 @@ std::vector<SaveInfo*> * Client::SearchSaves(int start, int count, std::string q
 		}
 		catch (std::exception &e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 		}
 	}
-	free(data);
 	return saveArray;
 }
 
-void Client::ClearThumbnailRequests()
-{
-	for(int i = 0; i < IMGCONNS; i++)
-	{
-		if(activeThumbRequests[i])
-		{
-			http_async_req_close(activeThumbRequests[i]);
-			activeThumbRequests[i] = NULL;
-			activeThumbRequestTimes[i] = 0;
-			activeThumbRequestCompleteTimes[i] = 0;
-		}
-	}
-}
-
-std::list<std::string> * Client::RemoveTag(int saveID, std::string tag)
+std::list<ByteString> * Client::RemoveTag(int saveID, ByteString tag)
 {
 	lastError = "";
-	std::list<std::string> * tags = NULL;
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/EditTag.json?Op=delete&ID=" << saveID << "&Tag=" << tag << "&Key=" << authUser.SessionKey;
-	if(authUser.ID)
+	std::list<ByteString> * tags = NULL;
+	ByteString data;
+	int dataStatus;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/EditTag.json?Op=delete&ID=", saveID, "&Tag=", tag, "&Key=", authUser.SessionKey);
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
@@ -1901,32 +1633,29 @@ std::list<std::string> * Client::RemoveTag(int saveID, std::string tag)
 			dataStream >> responseObject;
 
 			Json::Value tagsArray = responseObject["Tags"];
-			tags = new std::list<std::string>();
+			tags = new std::list<ByteString>();
 			for (Json::UInt j = 0; j < tagsArray.size(); j++)
 				tags->push_back(tagsArray[j].asString());
 		}
 		catch (std::exception &e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 		}
 	}
-	free(data);
 	return tags;
 }
 
-std::list<std::string> * Client::AddTag(int saveID, std::string tag)
+std::list<ByteString> * Client::AddTag(int saveID, ByteString tag)
 {
 	lastError = "";
-	std::list<std::string> * tags = NULL;
-	std::stringstream urlStream;
-	char * data = NULL;
-	int dataStatus, dataLength;
-	urlStream << "http://" << SERVER << "/Browse/EditTag.json?Op=add&ID=" << saveID << "&Tag=" << tag << "&Key=" << authUser.SessionKey;
-	if(authUser.ID)
+	std::list<ByteString> * tags = NULL;
+	ByteString data;
+	int dataStatus;
+	ByteString url = ByteString::Build(SCHEME, SERVER, "/Browse/EditTag.json?Op=add&ID=", saveID, "&Tag=", tag, "&Key=", authUser.SessionKey);
+	if(authUser.UserID)
 	{
-		std::stringstream userIDStream;
-		userIDStream << authUser.ID;
-		data = http_auth_get((char *)urlStream.str().c_str(), (char *)(userIDStream.str().c_str()), NULL, (char *)(authUser.SessionID.c_str()), &dataStatus, &dataLength);
+		ByteString userID = ByteString::Build(authUser.UserID);
+		data = http::Request::SimpleAuth(url, &dataStatus, userID, authUser.SessionID);
 	}
 	else
 	{
@@ -1943,31 +1672,95 @@ std::list<std::string> * Client::AddTag(int saveID, std::string tag)
 			dataStream >> responseObject;
 
 			Json::Value tagsArray = responseObject["Tags"];
-			tags = new std::list<std::string>();
+			tags = new std::list<ByteString>();
 			for (Json::UInt j = 0; j < tagsArray.size(); j++)
 				tags->push_back(tagsArray[j].asString());
 		}
 		catch (std::exception & e)
 		{
-			lastError = std::string("Could not read response: ") + e.what();
+			lastError = "Could not read response: " + ByteString(e.what()).FromUtf8();
 		}
 	}
-	free(data);
 	return tags;
+}
+
+// stamp-specific wrapper for MergeAuthorInfo
+// also used for clipboard and lua stamps
+void Client::MergeStampAuthorInfo(Json::Value stampAuthors)
+{
+	if (stampAuthors.size())
+	{
+		// when loading stamp/clipboard, only append info to authorship info (since we aren't replacing the save)
+		// unless there is nothing loaded currently, then set authors directly
+		if (authors.size())
+		{
+			// Don't add if it's exactly the same
+			if (stampAuthors["links"].size() == 1 && stampAuthors["links"][0] == Client::Ref().authors)
+				return;
+			if (authors["username"] != stampAuthors["username"])
+			{
+				// 2nd arg of MergeAuthorInfo needs to be an array
+				Json::Value toAdd;
+				toAdd.append(stampAuthors);
+				MergeAuthorInfo(toAdd);
+			}
+			else if (stampAuthors["links"].size())
+			{
+				MergeAuthorInfo(stampAuthors["links"]);
+			}
+		}
+		else
+			authors = stampAuthors;
+	}
+}
+
+// linksToAdd is an array (NOT an object) of links to add to authors["links"]
+void Client::MergeAuthorInfo(Json::Value linksToAdd)
+{
+	for (Json::Value::ArrayIndex i = 0; i < linksToAdd.size(); i++)
+	{
+		// link is the same exact json we have open, don't do anything
+		if (linksToAdd[i] == authors)
+			return;
+
+		bool hasLink = false;
+		for (Json::Value::ArrayIndex j = 0; j < authors["links"].size(); j++)
+		{
+			// check everything in authors["links"] to see if it's the same json as what we are already adding
+			if (authors["links"][j] == linksToAdd[i])
+				hasLink = true;
+		}
+		if (!hasLink)
+			authors["links"].append(linksToAdd[i]);
+	}
+}
+
+// load current authors information into a json value (when saving everything: stamps, clipboard, local saves, and online saves)
+void Client::SaveAuthorInfo(Json::Value *saveInto)
+{
+	if (authors.size() != 0)
+	{
+		// Different username? Save full original save info
+		if (authors["username"] != (*saveInto)["username"])
+			(*saveInto)["links"].append(authors);
+		// This is probalby the same save
+		// Don't append another layer of links, just keep existing links
+		else if (authors["links"].size())
+			(*saveInto)["links"] = authors["links"];
+	}
 }
 
 // powder.pref preference getting / setting functions
 
 // Recursively go down the json to get the setting we want
-Json::Value Client::GetPref(Json::Value root, std::string prop, Json::Value defaultValue)
+Json::Value Client::GetPref(Json::Value root, ByteString prop, Json::Value defaultValue)
 {
 	try
 	{
-		int dot = prop.find('.');
-		if (dot == prop.npos)
-			return root.get(prop, defaultValue);
+		if(ByteString::Split split = prop.SplitBy('.'))
+			return GetPref(root[split.Before()], split.After(), defaultValue);
 		else
-			return GetPref(root[prop.substr(0, dot)], prop.substr(dot+1), defaultValue);
+			return root.get(prop, defaultValue);
 	}
 	catch (std::exception & e)
 	{
@@ -1975,7 +1768,7 @@ Json::Value Client::GetPref(Json::Value root, std::string prop, Json::Value defa
 	}
 }
 
-std::string Client::GetPrefString(std::string prop, std::string defaultValue)
+ByteString Client::GetPrefByteString(ByteString prop, ByteString defaultValue)
 {
 	try
 	{
@@ -1987,7 +1780,19 @@ std::string Client::GetPrefString(std::string prop, std::string defaultValue)
 	}
 }
 
-double Client::GetPrefNumber(std::string prop, double defaultValue)
+String Client::GetPrefString(ByteString prop, String defaultValue)
+{
+	try
+	{
+		return ByteString(GetPref(preferences, prop, defaultValue.ToUtf8()).asString()).FromUtf8(false);
+	}
+	catch (std::exception & e)
+	{
+		return defaultValue;
+	}
+}
+
+double Client::GetPrefNumber(ByteString prop, double defaultValue)
 {
 	try
 	{
@@ -1999,7 +1804,7 @@ double Client::GetPrefNumber(std::string prop, double defaultValue)
 	}
 }
 
-int Client::GetPrefInteger(std::string prop, int defaultValue)
+int Client::GetPrefInteger(ByteString prop, int defaultValue)
 {
 	try
 	{
@@ -2011,7 +1816,7 @@ int Client::GetPrefInteger(std::string prop, int defaultValue)
 	}
 }
 
-unsigned int Client::GetPrefUInteger(std::string prop, unsigned int defaultValue)
+unsigned int Client::GetPrefUInteger(ByteString prop, unsigned int defaultValue)
 {
 	try
 	{
@@ -2023,7 +1828,7 @@ unsigned int Client::GetPrefUInteger(std::string prop, unsigned int defaultValue
 	}
 }
 
-bool Client::GetPrefBool(std::string prop, bool defaultValue)
+bool Client::GetPrefBool(ByteString prop, bool defaultValue)
 {
 	try
 	{
@@ -2035,13 +1840,13 @@ bool Client::GetPrefBool(std::string prop, bool defaultValue)
 	}
 }
 
-std::vector<std::string> Client::GetPrefStringArray(std::string prop)
+std::vector<ByteString> Client::GetPrefByteStringArray(ByteString prop)
 {
 	try
 	{
-		std::vector<std::string> ret;
+		std::vector<ByteString> ret;
 		Json::Value arr = GetPref(preferences, prop);
-		for (int i = 0; i < arr.size(); i++)
+		for (int i = 0; i < (int)arr.size(); i++)
 			ret.push_back(arr[i].asString());
 		return ret;
 	}
@@ -2049,16 +1854,33 @@ std::vector<std::string> Client::GetPrefStringArray(std::string prop)
 	{
 
 	}
-	return std::vector<std::string>();
+	return std::vector<ByteString>();
 }
 
-std::vector<double> Client::GetPrefNumberArray(std::string prop)
+std::vector<String> Client::GetPrefStringArray(ByteString prop)
+{
+	try
+	{
+		std::vector<String> ret;
+		Json::Value arr = GetPref(preferences, prop);
+		for (int i = 0; i < (int)arr.size(); i++)
+			ret.push_back(ByteString(arr[i].asString()).FromUtf8(false));
+		return ret;
+	}
+	catch (std::exception & e)
+	{
+
+	}
+	return std::vector<String>();
+}
+
+std::vector<double> Client::GetPrefNumberArray(ByteString prop)
 {
 	try
 	{
 		std::vector<double> ret;
 		Json::Value arr = GetPref(preferences, prop);
-		for (int i = 0; i < arr.size(); i++)
+		for (int i = 0; i < (int)arr.size(); i++)
 			ret.push_back(arr[i].asDouble());
 		return ret;
 	}
@@ -2069,13 +1891,13 @@ std::vector<double> Client::GetPrefNumberArray(std::string prop)
 	return std::vector<double>();
 }
 
-std::vector<int> Client::GetPrefIntegerArray(std::string prop)
+std::vector<int> Client::GetPrefIntegerArray(ByteString prop)
 {
 	try
 	{
 		std::vector<int> ret;
 		Json::Value arr = GetPref(preferences, prop);
-		for (int i = 0; i < arr.size(); i++)
+		for (int i = 0; i < (int)arr.size(); i++)
 			ret.push_back(arr[i].asInt());
 		return ret;
 	}
@@ -2086,13 +1908,13 @@ std::vector<int> Client::GetPrefIntegerArray(std::string prop)
 	return std::vector<int>();
 }
 
-std::vector<unsigned int> Client::GetPrefUIntegerArray(std::string prop)
+std::vector<unsigned int> Client::GetPrefUIntegerArray(ByteString prop)
 {
 	try
 	{
 		std::vector<unsigned int> ret;
 		Json::Value arr = GetPref(preferences, prop);
-		for (int i = 0; i < arr.size(); i++)
+		for (int i = 0; i < (int)arr.size(); i++)
 			ret.push_back(arr[i].asUInt());
 		return ret;
 	}
@@ -2103,13 +1925,13 @@ std::vector<unsigned int> Client::GetPrefUIntegerArray(std::string prop)
 	return std::vector<unsigned int>();
 }
 
-std::vector<bool> Client::GetPrefBoolArray(std::string prop)
+std::vector<bool> Client::GetPrefBoolArray(ByteString prop)
 {
 	try
 	{
 		std::vector<bool> ret;
 		Json::Value arr = GetPref(preferences, prop);
-		for (int i = 0; i < arr.size(); i++)
+		for (int i = 0; i < (int)arr.size(); i++)
 			ret.push_back(arr[i].asBool());
 		return ret;
 	}
@@ -2125,31 +1947,27 @@ std::vector<bool> Client::GetPrefBoolArray(std::string prop)
 // any other way will set the value of a copy of preferences, not the original
 // This function will recursively go through and create an object with the property we wanted set,
 // and return it to SetPref to do the actual setting
-Json::Value Client::SetPrefHelper(Json::Value root, std::string prop, Json::Value value)
+Json::Value Client::SetPrefHelper(Json::Value root, ByteString prop, Json::Value value)
 {
-	int dot = prop.find(".");
-	if (dot == prop.npos)
-		root[prop] = value;
-	else
+	if(ByteString::Split split = prop.SplitBy('.'))
 	{
-		Json::Value toSet = GetPref(root, prop.substr(0, dot));
-		toSet = SetPrefHelper(toSet, prop.substr(dot+1), value);
-		root[prop.substr(0, dot)] = toSet;
+		Json::Value toSet = GetPref(root, split.Before());
+		toSet = SetPrefHelper(toSet, split.After(), value);
+		root[split.Before()] = toSet;
 	}
+	else
+		root[prop] = value;
 	return root;
 }
 
-void Client::SetPref(std::string prop, Json::Value value)
+void Client::SetPref(ByteString prop, Json::Value value)
 {
 	try
 	{
-		int dot = prop.find(".");
-		if (dot == prop.npos)
-			preferences[prop] = value;
+		if(ByteString::Split split = prop.SplitBy('.'))
+			preferences[split.Before()] = SetPrefHelper(preferences[split.Before()], split.After(), value);
 		else
-		{
-			preferences[prop.substr(0, dot)] = SetPrefHelper(preferences[prop.substr(0, dot)], prop.substr(dot+1), value);
-		}
+			preferences[prop] = value;
 	}
 	catch (std::exception & e)
 	{
@@ -2157,12 +1975,12 @@ void Client::SetPref(std::string prop, Json::Value value)
 	}
 }
 
-void Client::SetPref(std::string prop, std::vector<Json::Value> value)
+void Client::SetPref(ByteString prop, std::vector<Json::Value> value)
 {
 	try
 	{
 		Json::Value arr;
-		for (int i = 0; i < value.size(); i++)
+		for (int i = 0; i < (int)value.size(); i++)
 		{
 			arr.append(value[i]);
 		}
@@ -2172,4 +1990,9 @@ void Client::SetPref(std::string prop, std::vector<Json::Value> value)
 	{
 
 	}
+}
+
+void Client::SetPrefUnicode(ByteString prop, String value)
+{
+	SetPref(prop, value.ToUtf8());
 }

@@ -1,6 +1,10 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_SOAP PT_SOAP 149
-Element_SOAP::Element_SOAP()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+static void changeType(ELEMENT_CHANGETYPE_FUNC_ARGS);
+
+void Element::Element_SOAP()
 {
 	Identifier = "DEFAULT_PT_SOAP";
 	Name = "SOAP";
@@ -26,7 +30,7 @@ Element_SOAP::Element_SOAP()
 
 	Weight = 35;
 
-	Temperature = R_TEMP-2.0f	+273.15f;
+	DefaultProperties.temp = R_TEMP - 2.0f + 273.15f;
 	HeatConduct = 29;
 	Description = "Soap. Creates bubbles, washes off deco color, and cures virus.";
 
@@ -38,15 +42,18 @@ Element_SOAP::Element_SOAP()
 	HighPressureTransition = NT;
 	LowTemperature = ITL;
 	LowTemperatureTransition = NT;
-	HighTemperature = ITL;
+	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_SOAP::update;
-	Graphics = &Element_SOAP::graphics;
+	DefaultProperties.tmp = -1;
+	DefaultProperties.tmp2 = -1;
+
+	Update = &update;
+	Graphics = &graphics;
+	ChangeType = &changeType;
 }
 
-//#TPT-Directive ElementHeader Element_SOAP static void detach(Simulation * sim, int i)
-void Element_SOAP::detach(Simulation * sim, int i)
+void Element_SOAP_detach(Simulation * sim, int i)
 {
 	if ((sim->parts[i].ctype&2) == 2 && sim->parts[i].tmp >= 0 && sim->parts[i].tmp < NPART && sim->parts[sim->parts[i].tmp].type == PT_SOAP)
 	{
@@ -63,8 +70,7 @@ void Element_SOAP::detach(Simulation * sim, int i)
 	sim->parts[i].ctype = 0;
 }
 
-//#TPT-Directive ElementHeader Element_SOAP static void attach(Particle * parts, int i1, int i2)
-void Element_SOAP::attach(Particle * parts, int i1, int i2)
+static void attach(Particle * parts, int i1, int i2)
 {
 	if (!(parts[i2].ctype&4))
 	{
@@ -84,12 +90,10 @@ void Element_SOAP::attach(Particle * parts, int i1, int i2)
 	}
 }
 
-#define FREEZING 248.15f
-#define BLEND 0.85f
+constexpr float FREEZING = 248.15f;
+constexpr float BLEND = 0.85f;
 
-//#TPT-Directive ElementHeader Element_SOAP static int update(UPDATE_FUNC_ARGS)
-int Element_SOAP::update(UPDATE_FUNC_ARGS)
- 
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry, nr, ng, nb, na;
 	float tr, tg, tb, ta;
@@ -120,19 +124,19 @@ int Element_SOAP::update(UPDATE_FUNC_ARGS)
 						if (parts[target].ctype&2)
 						{
 							target = parts[target].tmp;
-							detach(sim, target);
+							Element_SOAP_detach(sim, target);
 						}
 						if (parts[target].ctype&4)
 						{
 							target = parts[target].tmp2;
-							detach(sim, target);
+							Element_SOAP_detach(sim, target);
 						}
 					}
 				}
 				if ((parts[i].ctype&6) != 6)
 					parts[i].ctype = 0;
 				if ((parts[i].ctype&6) == 6 && (parts[parts[i].tmp].ctype&6) == 6 && parts[parts[i].tmp].tmp == i)
-					detach(sim, i);
+					Element_SOAP_detach(sim, i);
 			}
 			parts[i].vy = (parts[i].vy-0.1f)*0.5f;
 			parts[i].vx *= 0.5f;
@@ -146,8 +150,8 @@ int Element_SOAP::update(UPDATE_FUNC_ARGS)
 						r = pmap[y+ry][x+rx];
 						if (!r)
 							continue;
-						if ((parts[r>>8].type == PT_SOAP) && (parts[r>>8].ctype&1) && !(parts[r>>8].ctype&4))
-							Element_SOAP::attach(parts, i, r>>8);
+						if ((parts[ID(r)].type == PT_SOAP) && (parts[ID(r)].ctype&1) && !(parts[ID(r)].ctype&4))
+							attach(parts, i, ID(r));
 					}
 		}
 		else
@@ -163,34 +167,34 @@ int Element_SOAP::update(UPDATE_FUNC_ARGS)
 							if (parts[i].temp>FREEZING)
 							{
 								if (sim->bmap[(y+ry)/CELL][(x+rx)/CELL]
-									|| (r && !(sim->elements[r&0xFF].Properties&TYPE_GAS)
-								    && (r&0xFF) != PT_SOAP && (r&0xFF) != PT_GLAS))
+									|| (r && !(sim->elements[TYP(r)].Properties&TYPE_GAS)
+								    && TYP(r) != PT_SOAP && TYP(r) != PT_GLAS))
 								{
-									detach(sim, i);
+									Element_SOAP_detach(sim, i);
 									continue;
 								}
 							}
-							if ((r&0xFF) == PT_SOAP)
+							if (TYP(r) == PT_SOAP)
 							{
-								if (parts[r>>8].ctype == 1)
+								if (parts[ID(r)].ctype == 1)
 								{
 									int buf = parts[i].tmp;
 
-									parts[i].tmp = r>>8;
+									parts[i].tmp = ID(r);
 									if (parts[buf].type == PT_SOAP)
-										parts[buf].tmp2 = r>>8;
-									parts[r>>8].tmp2 = i;
-									parts[r>>8].tmp = buf;
-									parts[r>>8].ctype = 7;
+										parts[buf].tmp2 = ID(r);
+									parts[ID(r)].tmp2 = i;
+									parts[ID(r)].tmp = buf;
+									parts[ID(r)].ctype = 7;
 								}
-								else if (parts[r>>8].ctype == 7 && parts[i].tmp != r>>8 && parts[i].tmp2 != r>>8)
+								else if (parts[ID(r)].ctype == 7 && parts[i].tmp != ID(r) && parts[i].tmp2 != ID(r))
 								{
 									if (parts[parts[i].tmp].type == PT_SOAP)
-										parts[parts[i].tmp].tmp2 = parts[r>>8].tmp2;
-									if (parts[parts[r>>8].tmp2].type == PT_SOAP)
-										parts[parts[r>>8].tmp2].tmp = parts[i].tmp;
-									parts[r>>8].tmp2 = i;
-									parts[i].tmp = r>>8;
+										parts[parts[i].tmp].tmp2 = parts[ID(r)].tmp2;
+									if (parts[parts[ID(r)].tmp2].type == PT_SOAP)
+										parts[parts[ID(r)].tmp2].tmp = parts[i].tmp;
+									parts[ID(r)].tmp2 = i;
+									parts[i].tmp = ID(r);
 								}
 							}
 						}
@@ -237,13 +241,13 @@ int Element_SOAP::update(UPDATE_FUNC_ARGS)
 					r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					if ((r&0xFF) == PT_OIL)
+					if (TYP(r) == PT_OIL)
 					{
 						float ax, ay;
-						ax = (parts[i].vx*0.5f + parts[r>>8].vx)/2;
-						ay = ((parts[i].vy-0.1f)*0.5f + parts[r>>8].vy)/2;
-						parts[i].vx = parts[r>>8].vx = ax;
-						parts[i].vy = parts[r>>8].vy = ay;
+						ax = (parts[i].vx*0.5f + parts[ID(r)].vx)/2;
+						ay = ((parts[i].vy-0.1f)*0.5f + parts[ID(r)].vy)/2;
+						parts[i].vx = parts[ID(r)].vx = ax;
+						parts[i].vy = parts[ID(r)].vy = ay;
 					}
 				}
 	}
@@ -254,29 +258,33 @@ int Element_SOAP::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)!=PT_SOAP)
+				if (TYP(r)!=PT_SOAP)
 				{
-					tr = (parts[r>>8].dcolour>>16)&0xFF;
-					tg = (parts[r>>8].dcolour>>8)&0xFF;
-					tb = (parts[r>>8].dcolour)&0xFF;
-					ta = (parts[r>>8].dcolour>>24)&0xFF;
-					nr = (tr*BLEND);
-					ng = (tg*BLEND);
-					nb = (tb*BLEND);
-					na = (ta*BLEND);
-					parts[r>>8].dcolour = nr<<16 | ng<<8 | nb | na<<24;
+					tr = float((parts[ID(r)].dcolour>>16)&0xFF);
+					tg = float((parts[ID(r)].dcolour>>8)&0xFF);
+					tb = float((parts[ID(r)].dcolour)&0xFF);
+					ta = float((parts[ID(r)].dcolour>>24)&0xFF);
+					nr = int(tr*BLEND);
+					ng = int(tg*BLEND);
+					nb = int(tb*BLEND);
+					na = int(ta*BLEND);
+					parts[ID(r)].dcolour = nr<<16 | ng<<8 | nb | na<<24;
 				}
 			}
 
 	return 0;
 }
 
-//#TPT-Directive ElementHeader Element_SOAP static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_SOAP::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	*pixel_mode |= EFFECT_LINES|PMODE_BLUR;
 	return 1;
 }
 
-Element_SOAP::~Element_SOAP() {}
+static void changeType(ELEMENT_CHANGETYPE_FUNC_ARGS)
+{
+	if (from == PT_SOAP && to != PT_SOAP)
+	{
+		Element_SOAP_detach(sim, i);
+	}
+}

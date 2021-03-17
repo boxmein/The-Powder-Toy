@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_PRTO PT_PRTO 110
-Element_PRTO::Element_PRTO()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_PRTO()
 {
 	Identifier = "DEFAULT_PT_PRTO";
 	Name = "PRTO";
@@ -26,7 +29,6 @@ Element_PRTO::Element_PRTO()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 0;
 	Description = "Portal OUT. Particles come out here. Also has temperature dependent channels. (same as WIFI)";
 
@@ -41,8 +43,8 @@ Element_PRTO::Element_PRTO()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_PRTO::update;
-	Graphics = &Element_PRTO::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
 /*these are the count values of where the particle gets stored, depending on where it came from
@@ -53,8 +55,7 @@ Element_PRTO::Element_PRTO()
    PRTO does +/-1 to the count, so it doesn't jam as easily
 */
 
-//#TPT-Directive ElementHeader Element_PRTO static int update(UPDATE_FUNC_ARGS)
-int Element_PRTO::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, nnx, rx, ry, np, fe = 0;
 	int count = 0;
@@ -73,7 +74,7 @@ int Element_PRTO::update(UPDATE_FUNC_ARGS)
 					fe = 1;
 					for ( nnx =0 ; nnx<80; nnx++)
 					{
-						int randomness = (count + rand()%3-1 + 4)%8;//add -1,0,or 1 to count
+						int randomness = (count + RNG::Ref().between(-1, 1) + 4) % 8;//add -1,0,or 1 to count
 						if (sim->portalp[parts[i].tmp][randomness][nnx].type==PT_SPRK)// TODO: make it look better, spark creation
 						{
 							sim->create_part(-1,x+1,y,PT_SPRK);
@@ -129,8 +130,8 @@ int Element_PRTO::update(UPDATE_FUNC_ARGS)
 							}
 							else
 								parts[np] = sim->portalp[parts[i].tmp][randomness][nnx];
-							parts[np].x = x+rx;
-							parts[np].y = y+ry;
+							parts[np].x = float(x+rx);
+							parts[np].y = float(y+ry);
 							memset(&sim->portalp[parts[i].tmp][randomness][nnx], 0, sizeof(Particle));
 							break;
 						}
@@ -141,15 +142,15 @@ int Element_PRTO::update(UPDATE_FUNC_ARGS)
 	if (fe) {
 		int orbd[4] = {0, 0, 0, 0};	//Orbital distances
 		int orbl[4] = {0, 0, 0, 0};	//Orbital locations
-		if (!sim->parts[i].life) parts[i].life = rand()*rand()*rand();
-		if (!sim->parts[i].ctype) parts[i].ctype = rand()*rand()*rand();
+		if (!sim->parts[i].life) parts[i].life = RNG::Ref().gen();
+		if (!sim->parts[i].ctype) parts[i].ctype = RNG::Ref().gen();
 		sim->orbitalparts_get(parts[i].life, parts[i].ctype, orbd, orbl);
 		for (r = 0; r < 4; r++) {
 			if (orbd[r]<254) {
 				orbd[r] += 16;
 				if (orbd[r]>254) {
 					orbd[r] = 0;
-					orbl[r] = rand()%255;
+					orbl[r] = RNG::Ref().between(0, 254);
 				}
 				else
 				{
@@ -160,7 +161,7 @@ int Element_PRTO::update(UPDATE_FUNC_ARGS)
 				//orbl[r] = orbl[r]%255;
 			} else {
 				orbd[r] = 0;
-				orbl[r] = rand()%255;
+				orbl[r] = RNG::Ref().between(0, 254);
 			}
 		}
 		sim->orbitalparts_set(&parts[i].life, &parts[i].ctype, orbd, orbl);
@@ -171,10 +172,7 @@ int Element_PRTO::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_PRTO static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_PRTO::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	*firea = 8;
 	*firer = 0;
@@ -186,6 +184,3 @@ int Element_PRTO::graphics(GRAPHICS_FUNC_ARGS)
 	*pixel_mode |= PMODE_ADD;
 	return 1;
 }
-
-
-Element_PRTO::~Element_PRTO() {}

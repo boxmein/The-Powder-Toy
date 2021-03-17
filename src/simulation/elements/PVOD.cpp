@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_PVOD PT_PVOD 84
-Element_PVOD::Element_PVOD()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_PVOD()
 {
 	Identifier = "DEFAULT_PT_PVOD";
 	Name = "PVOD";
@@ -26,7 +29,6 @@ Element_PVOD::Element_PVOD()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 251;
 	Description = "Powered VOID. When activated, destroys entering particles.";
 
@@ -41,12 +43,11 @@ Element_PVOD::Element_PVOD()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_PVOD::update;
-	Graphics = &Element_PVOD::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_PVOD static int update(UPDATE_FUNC_ARGS)
-int Element_PVOD::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry;
 	if (parts[i].life>0 && parts[i].life!=10)
@@ -58,36 +59,30 @@ int Element_PVOD::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)==PT_SPRK)
+				if (TYP(r)==PT_SPRK)
 				{
-					if (parts[r>>8].life>0 && parts[r>>8].life<4)
+					if (parts[ID(r)].life>0 && parts[ID(r)].life<4)
 					{
-						if (parts[r>>8].ctype==PT_PSCN)
+						if (parts[ID(r)].ctype==PT_PSCN)
 							parts[i].life = 10;
-						else if (parts[r>>8].ctype==PT_NSCN)
+						else if (parts[ID(r)].ctype==PT_NSCN)
 							parts[i].life = 9;
 					}
 				}
-				else if ((r&0xFF)==PT_PVOD)
+				else if (TYP(r)==PT_PVOD)
 				{
-					if (parts[i].life==10&&parts[r>>8].life<10&&parts[r>>8].life>0)
+					if (parts[i].life==10&&parts[ID(r)].life<10&&parts[ID(r)].life>0)
 						parts[i].life = 9;
-					else if (parts[i].life==0&&parts[r>>8].life==10)
+					else if (parts[i].life==0&&parts[ID(r)].life==10)
 						parts[i].life = 10;
 				}
 			}
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_PVOD static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_PVOD::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	int lifemod = ((cpart->life>10?10:cpart->life)*16);
 	*colr += lifemod;
 	return 0;
 }
-
-
-Element_PVOD::~Element_PVOD() {}

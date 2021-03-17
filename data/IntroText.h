@@ -1,6 +1,9 @@
-static const char *introTextData =
-	"\blThe Powder Toy - Version " MTOS(SAVE_VERSION) "." MTOS(MINOR_VERSION) " - http://powdertoy.co.uk, irc.freenode.net #powder\n"
-	"\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\x7F\n"
+#pragma once
+#include "Config.h"
+
+const char *const introTextData =
+	"\blThe Powder Toy - Version " MTOS(SAVE_VERSION) "." MTOS(MINOR_VERSION) " - https://powdertoy.co.uk, irc.freenode.net #powder\n"
+	"\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\xEE\x81\xA9\n"
 	"\n"
 	"\bgControl+C/V/X are Copy, Paste and cut respectively.\n"
 	"\bgTo choose a material, hover over one of the icons on the right, it will show a selection of elements in that group.\n"
@@ -20,10 +23,10 @@ static const char *introTextData =
 	"\n"
 	"Contributors: \bgStanislaw K Skowronek (Designed the original Powder Toy),\n"
 	"\bgSimon Robertshaw, Skresanov Savely, cracker64, Catelite, Bryan Hoyle, Nathan Cousins, jacksonmj,\n"
-	"\bgFelix Wallin, Lieuwe Mosch, Anthony Boot, Matthew \"me4502\", MaksProg, jacob1, mniip\n"
+	"\bgFelix Wallin, Lieuwe Mosch, Anthony Boot, Matthew \"me4502\", MaksProg, jacob1, mniip, LBPHacker\n"
 	"\n"
 #ifndef BETA
-	"\bgTo use online features such as saving, you need to register at: \brhttp://powdertoy.co.uk/Register.html\n"
+	"\bgTo use online features such as saving, you need to register at: \brhttps://powdertoy.co.uk/Register.html\n"
 #else
 	"\brThis is a BETA, you cannot save things publicly. If you are planning on publishing any saves, use the release version\n"
 #endif
@@ -31,6 +34,8 @@ static const char *introTextData =
 	"\bt" MTOS(SAVE_VERSION) "." MTOS(MINOR_VERSION) "." MTOS(BUILD_NUM) " " IDENT_PLATFORM " "
 #ifdef SNAPSHOT
 	"SNAPSHOT " MTOS(SNAPSHOT_ID) " "
+#elif MOD_ID > 0
+	"MODVER " MTOS(SNAPSHOT_ID) " "
 #endif
 #ifdef X86
 	"X86 "

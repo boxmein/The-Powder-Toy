@@ -1,6 +1,11 @@
 #include "RenderController.h"
 
-RenderController::RenderController(Renderer * ren, ControllerCallback * callback):
+#include "RenderView.h"
+#include "RenderModel.h"
+
+#include "Controller.h"
+
+RenderController::RenderController(Renderer * ren, std::function<void ()> onDone_):
 	HasExited(false)
 {
 	renderView = new RenderView();
@@ -10,7 +15,7 @@ RenderController::RenderController(Renderer * ren, ControllerCallback * callback
 	renderModel->AddObserver(renderView);
 
 	renderModel->SetRenderer(ren);
-	this->callback = callback;
+	onDone = onDone_;
 }
 
 void RenderController::SetRenderMode(unsigned int renderMode)
@@ -45,21 +50,15 @@ void RenderController::LoadRenderPreset(int presetNum)
 
 void RenderController::Exit()
 {
-	if(ui::Engine::Ref().GetWindow() == renderView)
-	{
-		ui::Engine::Ref().CloseWindow();
-	}
-	if(callback)
-		callback->ControllerExit();
+	renderView->CloseActiveWindow();
+	if (onDone)
+		onDone();
 	HasExited = true;
 }
 
-RenderController::~RenderController() {
-	if(ui::Engine::Ref().GetWindow() == renderView)
-	{
-		ui::Engine::Ref().CloseWindow();
-	}
-	delete callback;
+RenderController::~RenderController()
+{
+	renderView->CloseActiveWindow();
 	delete renderModel;
 	delete renderView;
 }

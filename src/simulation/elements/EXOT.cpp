@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_EXOT PT_EXOT 145
-Element_EXOT::Element_EXOT()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_EXOT()
 {
 	Identifier = "DEFAULT_PT_EXOT";
 	Name = "EXOT";
@@ -26,7 +29,7 @@ Element_EXOT::Element_EXOT()
 
 	Weight = 46;
 
-	Temperature = R_TEMP-2.0f	+273.15f;
+	DefaultProperties.temp = R_TEMP - 2.0f + 273.15f;
 	HeatConduct = 250;
 	Description = "Exotic matter. Explodes with excess exposure to electrons. Has many other odd reactions.";
 
@@ -41,12 +44,14 @@ Element_EXOT::Element_EXOT()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_EXOT::update;
-	Graphics = &Element_EXOT::graphics;
+	DefaultProperties.life = 1000;
+	DefaultProperties.tmp = 244;
+
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_EXOT static int update(UPDATE_FUNC_ARGS)
-int Element_EXOT::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rt, rx, ry, trade, tym;
 	for (rx=-2; rx<=2; rx++)
@@ -56,37 +61,37 @@ int Element_EXOT::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				rt = r&0xFF;
+				rt = TYP(r);
 				if (rt == PT_WARP)
 				{
-					if (parts[r>>8].tmp2>2000 && !(rand()%100))
+					if (parts[ID(r)].tmp2>2000 && RNG::Ref().chance(1, 100))
 					{
 						parts[i].tmp2 += 100;
 					}
 				}
 				else if (rt == PT_EXOT)
 				{
-					if (parts[r>>8].ctype == PT_PROT)
+					if (parts[ID(r)].ctype == PT_PROT)
 						parts[i].ctype = PT_PROT;
-					if (parts[r>>8].life == 1500 && !(rand()%1000))
+					if (parts[ID(r)].life == 1500 && RNG::Ref().chance(1, 1000))
 						parts[i].life = 1500;
 				}
 				else if (rt == PT_LAVA)
 				{
 					//turn molten TTAN or molten GOLD to molten VIBR
-					if (parts[r>>8].ctype == PT_TTAN || parts[r>>8].ctype == PT_GOLD)
+					if (parts[ID(r)].ctype == PT_TTAN || parts[ID(r)].ctype == PT_GOLD)
 					{
-						if (!(rand()%10))
+						if (RNG::Ref().chance(1, 10))
 						{
-							parts[r>>8].ctype = PT_VIBR;
+							parts[ID(r)].ctype = PT_VIBR;
 							sim->kill_part(i);
 							return 1;
 						}
 					}
 					//molten VIBR will kill the leftover EXOT though, so the VIBR isn't killed later
-					else if (parts[r>>8].ctype == PT_VIBR)
+					else if (parts[ID(r)].ctype == PT_VIBR)
 					{
-						if (!(rand()%1000))
+						if (RNG::Ref().chance(1, 1000))
 						{
 							sim->kill_part(i);
 							return 1;
@@ -96,8 +101,10 @@ int Element_EXOT::update(UPDATE_FUNC_ARGS)
 				if (parts[i].tmp > 245 && parts[i].life > 1337)
 					if (rt!=PT_EXOT && rt!=PT_BREC && rt!=PT_DMND && rt!=PT_CLNE && rt!=PT_PRTI && rt!=PT_PRTO && rt!=PT_PCLN && rt!=PT_VOID && rt!=PT_NBHL && rt!=PT_WARP)
 					{
-						sim->create_part(i, x, y, rt);
-						return 1;
+						if (sim->create_part(i, x, y, rt) != -1)
+						{
+							return 1;
+						}
 					}
 			}
 
@@ -131,25 +138,25 @@ int Element_EXOT::update(UPDATE_FUNC_ARGS)
 	{
 		for (trade = 0; trade < 9; trade++)
 		{
-			rx = rand()%5-2;
-			ry = rand()%5-2;
+			rx = RNG::Ref().between(-2, 2);
+			ry = RNG::Ref().between(-2, 2);
 			if (BOUNDS_CHECK && (rx || ry))
 			{
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)==PT_EXOT && (parts[i].tmp2 > parts[r>>8].tmp2) && parts[r>>8].tmp2 >= 0) //diffusion
+				if (TYP(r)==PT_EXOT && (parts[i].tmp2 > parts[ID(r)].tmp2) && parts[ID(r)].tmp2 >= 0) //diffusion
 				{
-					tym = parts[i].tmp2 - parts[r>>8].tmp2;
+					tym = parts[i].tmp2 - parts[ID(r)].tmp2;
 					if (tym == 1)
 					{
-						parts[r>>8].tmp2++;
+						parts[ID(r)].tmp2++;
 						parts[i].tmp2--;
 						break;
 					}
 					if (tym > 0)
 					{
-						parts[r>>8].tmp2 += tym/2;
+						parts[ID(r)].tmp2 += tym/2;
 						parts[i].tmp2 -= tym/2;
 						break;
 					}
@@ -161,8 +168,10 @@ int Element_EXOT::update(UPDATE_FUNC_ARGS)
 	{
 		if (parts[i].temp < 50.0f)
 		{
-			sim->create_part(i, x, y, PT_CFLM);
-			return 1;
+			if (sim->create_part(i, x, y, PT_CFLM) != -1) // I don't see how this could fail but whatever
+			{
+				return 1;
+			}
 		}
 		else
 			parts[i].temp -= 1.0f;
@@ -171,27 +180,25 @@ int Element_EXOT::update(UPDATE_FUNC_ARGS)
 	{
 		parts[i].vx = 0;
 		parts[i].vy = 0;
-		sim->pv[y/CELL][x/CELL] -= 0.01;
+		sim->pv[y/CELL][x/CELL] -= 0.01f;
 		parts[i].tmp--;
 	}
 	return 0;
-
 }
 
-//#TPT-Directive ElementHeader Element_EXOT static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_EXOT::graphics(GRAPHICS_FUNC_ARGS)
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
-	int q = cpart->temp;
-	int b = cpart->tmp;
-	int c = cpart->tmp2;
+	auto q = cpart->temp;
+	auto b = cpart->tmp;
+	auto c = cpart->tmp2;
 	if (cpart->life < 1001)
 	{
-		if ((cpart->tmp2 - 1)>rand()%1000)
+		if (RNG::Ref().chance(cpart->tmp2 - 1, 1000))
 		{
-			float frequency = 0.04045;
-			*colr = (sin(frequency*c + 4) * 127 + 150);
-			*colg = (sin(frequency*c + 6) * 127 + 150);
-			*colb = (sin(frequency*c + 8) * 127 + 150);
+			float frequency = 0.04045f;
+			*colr = int(sin(frequency*c + 4) * 127 + 150);
+			*colg = int(sin(frequency*c + 6) * 127 + 150);
+			*colb = int(sin(frequency*c + 8) * 127 + 150);
 
 			*firea = 100;
 			*firer = 0;
@@ -203,11 +210,11 @@ int Element_EXOT::graphics(GRAPHICS_FUNC_ARGS)
 		}
 		else
 		{
-			float frequency = 0.00045;
-			*colr = (sin(frequency*q + 4) * 127 + (b/1.7));
-			*colg = (sin(frequency*q + 6) * 127 + (b/1.7));
-			*colb = (sin(frequency*q + 8) * 127 + (b/1.7));
-			*cola = cpart->tmp / 6; 
+			float frequency = 0.00045f;
+			*colr = int(sin(frequency*q + 4) * 127 + (b/1.7));
+			*colg = int(sin(frequency*q + 6) * 127 + (b/1.7));
+			*colb = int(sin(frequency*q + 8) * 127 + (b/1.7));
+			*cola = cpart->tmp / 6;
 
 			*firea = *cola;
 			*firer = *colr;
@@ -220,10 +227,10 @@ int Element_EXOT::graphics(GRAPHICS_FUNC_ARGS)
 	}
 	else
 	{
-		float frequency = 0.01300;
-		*colr = (sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
-		*colg = (sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
-		*colb = (sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
+		float frequency = 0.01300f;
+		*colr = int(sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
+		*colg = int(sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
+		*colb = int(sin(frequency*q + 6.00) * 127 + ((b/2.9) + 80));
 		*cola = cpart->tmp / 6;
 		*firea = *cola;
 		*firer = *colr;
@@ -234,5 +241,3 @@ int Element_EXOT::graphics(GRAPHICS_FUNC_ARGS)
 	}
 	return 0;
 }
-
-Element_EXOT::~Element_EXOT() {}

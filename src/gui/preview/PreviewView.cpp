@@ -1,159 +1,84 @@
-#include <sstream>
-#include <vector>
-#include <cmath>
 #include "PreviewView.h"
-#include "gui/dialogues/TextPrompt.h"
+
 #include "simulation/SaveRenderer.h"
-#include "gui/interface/Point.h"
-#include "gui/interface/Window.h"
-#include "gui/interface/Textbox.h"
-#include "gui/Style.h"
-#include "Format.h"
-#include "gui/search/Thumbnail.h"
-#include "gui/profile/ProfileActivity.h"
+
 #include "client/Client.h"
+#include "client/SaveInfo.h"
+
+#include "gui/dialogues/TextPrompt.h"
+#include "gui/profile/ProfileActivity.h"
 #include "gui/interface/ScrollPanel.h"
 #include "gui/interface/AvatarButton.h"
+#include "gui/preview/PreviewController.h"
+#include "gui/preview/PreviewModel.h"
+#include "gui/interface/Button.h"
 #include "gui/interface/Keys.h"
+#include "gui/interface/CopyTextButton.h"
+#include "gui/interface/Label.h"
+#include "gui/interface/Textbox.h"
 #include "gui/dialogues/ErrorMessage.h"
+#include "gui/interface/Point.h"
+#include "gui/interface/Window.h"
+#include "gui/Style.h"
 
-class PreviewView::LoginAction: public ui::ButtonAction
-{
-	PreviewView * v;
-public:
-	LoginAction(PreviewView * v_){ v = v_; }
-	virtual void ActionCallback(ui::Button * sender)
-	{
-		v->c->ShowLogin();
-	}
-};
+#include "common/tpt-rand.h"
+#include "Comment.h"
+#include "Format.h"
+#include "Misc.h"
 
-class PreviewView::SubmitCommentAction: public ui::ButtonAction
-{
-	PreviewView * v;
-public:
-	SubmitCommentAction(PreviewView * v_){ v = v_; }
-	virtual void ActionCallback(ui::Button * sender)
-	{
-		v->submitComment();
-	}
-};
-
-class PreviewView::AutoCommentSizeAction: public ui::TextboxAction
-{
-	PreviewView * v;
-public:
-	AutoCommentSizeAction(PreviewView * v): v(v) {}
-	virtual void TextChangedCallback(ui::Textbox * sender) {
-		v->commentBoxAutoHeight();
-	}
-};
-
-class PreviewView::AvatarAction: public ui::AvatarButtonAction
-{
-	PreviewView * v;
-public:
-	AvatarAction(PreviewView * v_){ v = v_; }
-	virtual void ActionCallback(ui::AvatarButton * sender)
-	{
-		if(sender->GetUsername().size() > 0)
-		{
-			new ProfileActivity(sender->GetUsername());
-		}
-	}
-};
+#ifdef GetUserName
+# undef GetUserName // dammit windows
+#endif
 
 PreviewView::PreviewView():
 	ui::Window(ui::Point(-1, -1), ui::Point((XRES/2)+210, (YRES/2)+150)),
 	savePreview(NULL),
 	submitCommentButton(NULL),
 	addCommentBox(NULL),
+	commentWarningLabel(NULL),
+	userIsAuthor(false),
 	doOpen(false),
 	doError(false),
 	doErrorMessage(""),
 	showAvatars(true),
 	prevPage(false),
-	commentBoxHeight(20)
+	commentBoxHeight(20),
+	commentHelpText(false)
 {
-	class FavAction: public ui::ButtonAction
-	{
-		PreviewView * v;
-	public:
-		FavAction(PreviewView * v_){ v = v_; }
-		virtual void ActionCallback(ui::Button * sender)
-		{
-			v->c->FavouriteSave();
-		}
-	};
-
 	showAvatars = Client::Ref().GetPrefBool("ShowAvatars", true);
 
 	favButton = new ui::Button(ui::Point(50, Size.Y-19), ui::Point(51, 19), "Fav");
-	favButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;	favButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
+	favButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+	favButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	favButton->SetIcon(IconFavourite);
-	favButton->SetActionCallback(new FavAction(this));
-	favButton->Enabled = Client::Ref().GetAuthUser().ID?true:false;
+	favButton->SetActionCallback({ [this] { c->FavouriteSave(); } });
+	favButton->Enabled = Client::Ref().GetAuthUser().UserID?true:false;
 	AddComponent(favButton);
 
-	class ReportPromptCallback: public TextDialogueCallback {
-	public:
-		PreviewView * v;
-		ReportPromptCallback(PreviewView * v_) { v = v_;	}
-		virtual void TextCallback(TextPrompt::DialogueResult result, std::string resultText) {
-			if (result == TextPrompt::ResultOkay)
-				v->c->Report(resultText);
-		}
-		virtual ~ReportPromptCallback() { }
-	};
-
-	class ReportAction: public ui::ButtonAction
-	{
-		PreviewView * v;
-	public:
-		ReportAction(PreviewView * v_){ v = v_; }
-		virtual void ActionCallback(ui::Button * sender)
-		{
-			new TextPrompt("Report Save", "Things to consider when reporting:\n\bw1)\bg When reporting stolen saves, please include the ID of the original save.\n\bw2)\bg Do not waste staff time with fake or bogus reports, doing so may result in a ban.", "", "[reason]", true, new ReportPromptCallback(v));
-		}
-	};
 	reportButton = new ui::Button(ui::Point(100, Size.Y-19), ui::Point(51, 19), "Report");
-	reportButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;	reportButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
+	reportButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+	reportButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	reportButton->SetIcon(IconReport);
-	reportButton->SetActionCallback(new ReportAction(this));
-	reportButton->Enabled = Client::Ref().GetAuthUser().ID?true:false;
+	reportButton->SetActionCallback({ [this] {
+		new TextPrompt("Report Save", "Things to consider when reporting:\n\bw1)\bg When reporting stolen saves, please include the ID of the original save.\n\bw2)\bg Do not ask for saves to be removed from front page unless they break the rules.\n\bw3)\bg You may report saves for comments or tags too (including your own saves)", "", "[reason]", true, { [this](String const &resultText) {
+			c->Report(resultText);
+		} });
+	} });
+	reportButton->Enabled = Client::Ref().GetAuthUser().UserID?true:false;
 	AddComponent(reportButton);
 
-	class OpenAction: public ui::ButtonAction
-	{
-		PreviewView * v;
-	public:
-		OpenAction(PreviewView * v_){ v = v_; }
-		virtual void ActionCallback(ui::Button * sender)
-		{
-			v->c->DoOpen();
-		}
-	};
 	openButton = new ui::Button(ui::Point(0, Size.Y-19), ui::Point(51, 19), "Open");
-	openButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;	openButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
+	openButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+	openButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	openButton->SetIcon(IconOpen);
-	openButton->SetActionCallback(new OpenAction(this));
+	openButton->SetActionCallback({ [this] { c->DoOpen(); } });
 	AddComponent(openButton);
 
-	class BrowserOpenAction: public ui::ButtonAction
-	{
-		PreviewView * v;
-	public:
-		BrowserOpenAction(PreviewView * v_){ v = v_; }
-		virtual void ActionCallback(ui::Button * sender)
-		{
-			v->c->OpenInBrowser();
-		}
-	};
-
 	browserOpenButton = new ui::Button(ui::Point((XRES/2)-107, Size.Y-19), ui::Point(108, 19), "Open in browser");
-	browserOpenButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;	browserOpenButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
+	browserOpenButton->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+	browserOpenButton->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	browserOpenButton->SetIcon(IconOpen);
-	browserOpenButton->SetActionCallback(new BrowserOpenAction(this));
+	browserOpenButton->SetActionCallback({ [this] { c->OpenInBrowser(); } });
 	AddComponent(browserOpenButton);
 
 	if(showAvatars)
@@ -185,7 +110,12 @@ PreviewView::PreviewView():
 	if(showAvatars)
 	{
 		avatarButton = new ui::AvatarButton(ui::Point(4, (YRES/2)+4), ui::Point(34, 34), "");
-		avatarButton->SetActionCallback(new AvatarAction(this));
+		avatarButton->SetActionCallback({ [this] {
+			if (avatarButton->GetUsername().size() > 0)
+			{
+				new ProfileActivity(avatarButton->GetUsername());
+			}
+		} });
 		AddComponent(avatarButton);
 	}
 
@@ -193,13 +123,23 @@ PreviewView::PreviewView():
 	viewsLabel->Appearance.HorizontalAlign = ui::Appearance::AlignRight;
 	viewsLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	AddComponent(viewsLabel);
-	
+
 	pageInfo = new ui::Label(ui::Point((XRES/2) + 85, Size.Y+1), ui::Point(70, 16), "Page 1 of 1");
 	pageInfo->Appearance.HorizontalAlign = ui::Appearance::AlignCentre;
 	AddComponent(pageInfo);
 
 	commentsPanel = new ui::ScrollPanel(ui::Point((XRES/2)+1, 1), ui::Point((Size.X-(XRES/2))-2, Size.Y-commentBoxHeight));
 	AddComponent(commentsPanel);
+
+	swearWords.insert("fuck");
+	swearWords.insert("bitch");
+	swearWords.insert("shit ");
+	swearWords.insert("asshole");
+	swearWords.insert("dick");
+	swearWords.insert("cunt");
+	swearWords.insert(" nigger");
+	swearWords.insert("faggot");
+	swearWords.insert("dumbass");
 }
 
 void PreviewView::AttachController(PreviewController * controller)
@@ -212,11 +152,11 @@ void PreviewView::AttachController(PreviewController * controller)
 	saveIDLabel->Appearance.HorizontalAlign = ui::Appearance::AlignCentre;
 	AddComponent(saveIDLabel);
 
-	textWidth = Graphics::textwidth(format::NumberToString<int>(c->SaveID()).c_str());
+	textWidth = Graphics::textwidth(String::Build(c->SaveID()));
 	saveIDLabel2 = new ui::Label(ui::Point((Size.X-textWidth-20)/2-37, Size.Y+22), ui::Point(40, 16), "Save ID:");
 	AddComponent(saveIDLabel2);
-	
-	saveIDButton = new ui::CopyTextButton(ui::Point((Size.X-textWidth-10)/2, Size.Y+20), ui::Point(textWidth+10, 18), format::NumberToString<int>(c->SaveID()), saveIDLabel);
+
+	saveIDButton = new ui::CopyTextButton(ui::Point((Size.X-textWidth-10)/2, Size.Y+20), ui::Point(textWidth+10, 18), String::Build(c->SaveID()), saveIDLabel);
 	AddComponent(saveIDButton);
 }
 
@@ -225,7 +165,7 @@ void PreviewView::commentBoxAutoHeight()
 	if(!addCommentBox)
 		return;
 	int textWidth = Graphics::textwidth(addCommentBox->GetText().c_str());
-	if(textWidth+15 > Size.X-(XRES/2)-48)
+	if (commentHelpText || textWidth+15 > Size.X-(XRES/2)-48)
 	{
 		addCommentBox->Appearance.VerticalAlign = ui::Appearance::AlignTop;
 
@@ -236,9 +176,14 @@ void PreviewView::commentBoxAutoHeight()
 
 		commentBoxHeight = newSize+22;
 		commentBoxPositionX = (XRES/2)+4;
-		commentBoxPositionY = Size.Y-(newSize+21);
-		commentBoxSizeX = Size.X-(XRES/2)-8;
-		commentBoxSizeY = newSize;
+		commentBoxPositionY = float(Size.Y-(newSize+21));
+		commentBoxSizeX = float(Size.X-(XRES/2)-8);
+		commentBoxSizeY = float(newSize);
+
+		if (commentWarningLabel && commentHelpText && !commentWarningLabel->Visible && addCommentBox->Position.Y+addCommentBox->Size.Y < Size.Y-14)
+		{
+			commentWarningLabel->Visible = true;
+		}
 	}
 	else
 	{
@@ -246,17 +191,68 @@ void PreviewView::commentBoxAutoHeight()
 		addCommentBox->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 
 		commentBoxPositionX = (XRES/2)+4;
-		commentBoxPositionY = Size.Y-19;
-		commentBoxSizeX = Size.X-(XRES/2)-48;
-		commentBoxSizeY = 16;
+		commentBoxPositionY = float(Size.Y-19);
+		commentBoxSizeX = float(Size.X-(XRES/2)-48);
+		commentBoxSizeY = 17;
+
+		if (commentWarningLabel && commentWarningLabel->Visible)
+		{
+			commentWarningLabel->Visible = false;
+		}
 	}
-	commentsPanel->Size.Y = Size.Y-commentBoxHeight;
+}
+
+bool PreviewView::CheckSwearing(String text)
+{
+	for (std::set<String>::iterator iter = swearWords.begin(), end = swearWords.end(); iter != end; iter++)
+		if (text.Contains(*iter))
+			return true;
+	return false;
+}
+
+void PreviewView::CheckComment()
+{
+	if (!commentWarningLabel)
+		return;
+	String text = addCommentBox->GetText().ToLower();
+	if (!userIsAuthor && (text.Contains("stolen") || text.Contains("copied")))
+	{
+		if (!commentHelpText)
+		{
+			if (random_gen()%2)
+				commentWarningLabel->SetText("Stolen? Report the save instead");
+			else
+				commentWarningLabel->SetText("Please report stolen saves");
+			commentHelpText = true;
+		}
+	}
+	else if (userIsAuthor && text.Contains("vote"))
+	{
+		commentWarningLabel->SetText("Do not ask for votes");
+		commentHelpText = true;
+	}
+	else if (CheckSwearing(text))
+	{
+		if (!commentHelpText)
+		{
+			if (random_gen()%2)
+				commentWarningLabel->SetText("Please do not swear");
+			else
+				commentWarningLabel->SetText("Bad language may be deleted");
+			commentHelpText = true;
+		}
+	}
+	else
+	{
+		commentHelpText = false;
+		commentWarningLabel->Visible = false;
+	}
 }
 
 void PreviewView::DoDraw()
 {
 	Window::DoDraw();
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 	for (size_t i = 0; i < commentTextComponents.size(); i++)
 	{
 		int linePos = commentTextComponents[i]->Position.Y+commentsPanel->ViewportPosition.Y+commentTextComponents[i]->Size.Y+4;
@@ -280,7 +276,7 @@ void PreviewView::DoDraw()
 
 void PreviewView::OnDraw()
 {
-	Graphics * g = ui::Engine::Ref().g;
+	Graphics * g = GetGraphics();
 
 	//Window Background+Outline
 	g->clearrect(Position.X-2, Position.Y-2, Size.X+4, Size.Y+4);
@@ -303,14 +299,14 @@ void PreviewView::OnDraw()
 		if (50>lv)
 		{
 			ryf = 50.0f/((float)lv);
-			nyu = votesUp*ryf;
-			nyd = votesDown*ryf;
+			nyu = int(votesUp*ryf);
+			nyd = int(votesDown*ryf);
 		}
 		else
 		{
 			ryf = ((float)lv)/50.0f;
-			nyu = votesUp/ryf;
-			nyd = votesDown/ryf;
+			nyu = int(votesUp/ryf);
+			nyd = int(votesDown/ryf);
 		}
 		nyu = nyu>50?50:nyu;
 		nyd = nyd>50?50:nyd;
@@ -329,8 +325,8 @@ void PreviewView::OnTick(float dt)
 {
 	if(addCommentBox)
 	{
-		ui::Point positionDiff = ui::Point(commentBoxPositionX, commentBoxPositionY)-addCommentBox->Position;
-		ui::Point sizeDiff = ui::Point(commentBoxSizeX, commentBoxSizeY)-addCommentBox->Size;
+		ui::Point positionDiff = ui::Point(int(commentBoxPositionX), int(commentBoxPositionY))-addCommentBox->Position;
+		ui::Point sizeDiff = ui::Point(int(commentBoxSizeX), int(commentBoxSizeY))-addCommentBox->Size;
 
 		if(positionDiff.X!=0)
 		{
@@ -365,6 +361,7 @@ void PreviewView::OnTick(float dt)
 			addCommentBox->Size.Y += ydiff;
 			addCommentBox->Invalidate();
 		}
+		commentsPanel->Size.Y = addCommentBox->Position.Y-1;
 	}
 
 	c->Update();
@@ -407,15 +404,17 @@ void PreviewView::OnMouseUp(int x, int y, unsigned int button)
 	}
 }
 
-void PreviewView::OnKeyPress(int key, Uint16 character, bool shift, bool ctrl, bool alt)
+void PreviewView::OnKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
 {
-	if ((key == KEY_ENTER || key == KEY_RETURN) && (!addCommentBox || !addCommentBox->IsFocused()))
+	if (repeat)
+		return;
+	if ((key == SDLK_KP_ENTER || key == SDLK_RETURN) && (!addCommentBox || !addCommentBox->IsFocused()))
 		openButton->DoAction();
 }
 
 void PreviewView::NotifySaveChanged(PreviewModel * sender)
 {
-	SaveInfo * save = sender->GetSave();
+	SaveInfo * save = sender->GetSaveInfo();
 	delete savePreview;
 	savePreview = NULL;
 	if(save)
@@ -423,22 +422,32 @@ void PreviewView::NotifySaveChanged(PreviewModel * sender)
 		votesUp = save->votesUp;
 		votesDown = save->votesDown;
 		saveNameLabel->SetText(save->name);
-		if(showAvatars) {
+		String dateType;
+		if (save->updatedDate == save->createdDate)
+			dateType = "Created:";
+		else
+			dateType = "Updated:";
+		if (showAvatars)
+		{
 			avatarButton->SetUsername(save->userName);
-			authorDateLabel->SetText("\bw" + save->userName + " \bgDate:\bw " + format::UnixtimeToDateMini(save->date));
+			authorDateLabel->SetText("\bw" + save->userName.FromUtf8() + " \bg" + dateType + " \bw" + format::UnixtimeToDateMini(save->updatedDate).FromAscii());
 		}
 		else
 		{
-			authorDateLabel->SetText("\bgAuthor:\bw " + save->userName + " \bgDate:\bw " + format::UnixtimeToDateMini(save->date));
+			authorDateLabel->SetText("\bgAuthor:\bw " + save->userName.FromUtf8() + " \bg" + dateType + " \bw" + format::UnixtimeToDateMini(save->updatedDate).FromAscii());
 		}
-		viewsLabel->SetText("\bgViews:\bw " + format::NumberToString<int>(save->Views));
+		if (Client::Ref().GetAuthUser().UserID && save->userName == Client::Ref().GetAuthUser().Username)
+			userIsAuthor = true;
+		else
+			userIsAuthor = false;
+		viewsLabel->SetText(String::Build("\bgViews:\bw ", save->Views));
 		saveDescriptionLabel->SetText(save->Description);
 		if(save->Favourite)
 		{
 			favButton->Enabled = true;
 			favButton->SetText("Unfav");
 		}
-		else if(Client::Ref().GetAuthUser().ID)
+		else if(Client::Ref().GetAuthUser().UserID)
 		{
 			favButton->Enabled = true;
 			favButton->SetText("Fav");
@@ -459,10 +468,10 @@ void PreviewView::NotifySaveChanged(PreviewModel * sender)
 				float factorX = ((float)XRES/2)/((float)savePreview->Width);
 				float factorY = ((float)YRES/2)/((float)savePreview->Height);
 				float scaleFactor = factorY < factorX ? factorY : factorX;
-				savePreview->Buffer = Graphics::resample_img(oldData, savePreview->Width, savePreview->Height, savePreview->Width*scaleFactor, savePreview->Height*scaleFactor);
+				savePreview->Buffer = Graphics::resample_img(oldData, savePreview->Width, savePreview->Height, int(savePreview->Width*scaleFactor), int(savePreview->Height*scaleFactor));
 				delete[] oldData;
-				savePreview->Width *= scaleFactor;
-				savePreview->Height *= scaleFactor;
+				savePreview->Width = int(savePreview->Width * scaleFactor);
+				savePreview->Height = int(savePreview->Height * scaleFactor);
 			}
 		}
 		else if (!sender->GetCanOpen())
@@ -485,7 +494,7 @@ void PreviewView::submitComment()
 {
 	if(addCommentBox)
 	{
-		std::string comment = std::string(addCommentBox->GetText());
+		String comment = addCommentBox->GetText();
 		submitCommentButton->Enabled = false;
 		addCommentBox->SetText("");
 		addCommentBox->SetPlaceholder("Submitting comment"); //This doesn't appear to ever show since no separate thread is created
@@ -518,29 +527,38 @@ void PreviewView::NotifyCommentBoxEnabledChanged(PreviewModel * sender)
 	if(sender->GetCommentBoxEnabled())
 	{
 		commentBoxPositionX = (XRES/2)+4;
-		commentBoxPositionY = Size.Y-19;
-		commentBoxSizeX = Size.X-(XRES/2)-48;
+		commentBoxPositionY = float(Size.Y-19);
+		commentBoxSizeX = float(Size.X-(XRES/2)-48);
 		commentBoxSizeY = 17;
 
 		addCommentBox = new ui::Textbox(ui::Point((XRES/2)+4, Size.Y-19), ui::Point(Size.X-(XRES/2)-48, 17), "", "Add Comment");
-		addCommentBox->SetActionCallback(new AutoCommentSizeAction(this));
+		addCommentBox->SetActionCallback({ [this] {
+			CheckComment();
+			commentBoxAutoHeight();
+		} });
 		addCommentBox->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 		addCommentBox->SetMultiline(true);
 		AddComponent(addCommentBox);
 		submitCommentButton = new ui::Button(ui::Point(Size.X-40, Size.Y-19), ui::Point(40, 19), "Submit");
-		submitCommentButton->SetActionCallback(new SubmitCommentAction(this));
+		submitCommentButton->SetActionCallback({ [this] { submitComment(); } });
 		//submitCommentButton->Enabled = false;
 		AddComponent(submitCommentButton);
+
+		commentWarningLabel = new ui::Label(ui::Point((XRES/2)+4, Size.Y-19), ui::Point(Size.X-(XRES/2)-48, 16), "If you see this it is a bug");
+		commentWarningLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+		commentWarningLabel->SetTextColour(ui::Colour(255, 0, 0));
+		commentWarningLabel->Visible = false;
+		AddComponent(commentWarningLabel);
 	}
 	else
 	{
 		submitCommentButton = new ui::Button(ui::Point(XRES/2, Size.Y-19), ui::Point(Size.X-(XRES/2), 19), "Login to comment");
-		submitCommentButton->SetActionCallback(new LoginAction(this));
+		submitCommentButton->SetActionCallback({ [this] { c->ShowLogin(); } });
 		AddComponent(submitCommentButton);
 	}
 }
 
-void PreviewView::SaveLoadingError(std::string errorMessage)
+void PreviewView::SaveLoadingError(String errorMessage)
 {
 	doError = true;
 	doErrorMessage = errorMessage;
@@ -548,9 +566,7 @@ void PreviewView::SaveLoadingError(std::string errorMessage)
 
 void PreviewView::NotifyCommentsPageChanged(PreviewModel * sender)
 {
-	std::stringstream pageInfoStream;
-	pageInfoStream << "Page " << sender->GetCommentsPageNum() << " of " << sender->GetCommentsPageCount();
-	pageInfo->SetText(pageInfoStream.str());
+	pageInfo->SetText(String::Build("Page ", sender->GetCommentsPageNum(), " of ", sender->GetCommentsPageCount()));
 }
 
 void PreviewView::NotifyCommentsChanged(PreviewModel * sender)
@@ -585,20 +601,25 @@ void PreviewView::NotifyCommentsChanged(PreviewModel * sender)
 			if (showAvatars)
 			{
 				tempAvatar = new ui::AvatarButton(ui::Point(2, currentY+7), ui::Point(26, 26), comments->at(i)->authorName);
-				tempAvatar->SetActionCallback(new AvatarAction(this));
+				tempAvatar->SetActionCallback({ [tempAvatar] {
+					if (tempAvatar->GetUsername().size() > 0)
+					{
+						new ProfileActivity(tempAvatar->GetUsername());
+					}
+				} });
 				commentComponents.push_back(tempAvatar);
 				commentsPanel->AddChild(tempAvatar);
 			}
 
 			if (showAvatars)
-				tempUsername = new ui::Label(ui::Point(31, currentY+3), ui::Point(Size.X-((XRES/2) + 13 + 26), 16), comments->at(i)->authorNameFormatted);
+				tempUsername = new ui::Label(ui::Point(31, currentY+3), ui::Point(Size.X-((XRES/2) + 13 + 26), 16), comments->at(i)->authorNameFormatted.FromUtf8());
 			else
-				tempUsername = new ui::Label(ui::Point(5, currentY+3), ui::Point(Size.X-((XRES/2) + 13), 16), comments->at(i)->authorNameFormatted);
+				tempUsername = new ui::Label(ui::Point(5, currentY+3), ui::Point(Size.X-((XRES/2) + 13), 16), comments->at(i)->authorNameFormatted.FromUtf8());
 			tempUsername->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 			tempUsername->Appearance.VerticalAlign = ui::Appearance::AlignBottom;
-			if (Client::Ref().GetAuthUser().ID && Client::Ref().GetAuthUser().Username == comments->at(i)->authorName)
+			if (Client::Ref().GetAuthUser().UserID && Client::Ref().GetAuthUser().Username == comments->at(i)->authorName)
 				tempUsername->SetTextColour(ui::Colour(255, 255, 100));
-			else if (sender->GetSave() && sender->GetSave()->GetUserName() == comments->at(i)->authorName)
+			else if (sender->GetSaveInfo() && sender->GetSaveInfo()->GetUserName() == comments->at(i)->authorName)
 				tempUsername->SetTextColour(ui::Colour(255, 100, 100));
 			currentY += 16;
 
@@ -645,4 +666,3 @@ PreviewView::~PreviewView()
 	}
 	delete savePreview;
 }
-

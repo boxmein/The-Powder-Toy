@@ -1,12 +1,14 @@
-#include <iostream>
-#include <string>
-#include <string.h>
+#include "CommandInterface.h"
+
+#include <cstring>
+#include <cstddef>
 #if !defined(WIN) || defined(__GNUC__)
 #include <strings.h>
 #endif
-#include "CommandInterface.h"
+
 #include "gui/game/GameModel.h"
-#include "gui/game/GameController.h"
+
+#include "simulation/Particle.h"
 
 CommandInterface::CommandInterface(GameController * c, GameModel * m) {
 	this->m = m;
@@ -18,23 +20,23 @@ CommandInterface::CommandInterface(GameController * c, GameModel * m) {
 	this->m = m;
 }*/
 
-int CommandInterface::Command(std::string command)
+int CommandInterface::Command(String command)
 {
 	lastError = "No interpreter";
 	return -1;
 }
 
-std::string CommandInterface::FormatCommand(std::string command)
+String CommandInterface::FormatCommand(String command)
 {
 	return command;
 }
 
-void CommandInterface::Log(LogType type, std::string message)
+void CommandInterface::Log(LogType type, String message)
 {
 	m->Log(message, type == LogError || type == LogNotice);
 }
 
-int CommandInterface::GetPropertyOffset(std::string key, FormatType & format)
+int CommandInterface::GetPropertyOffset(ByteString key, FormatType & format)
 {
 	int offset = -1;
 	if (!key.compare("type"))
@@ -105,28 +107,7 @@ int CommandInterface::GetPropertyOffset(std::string key, FormatType & format)
 	return offset;
 }
 
-int CommandInterface::GetParticleType(std::string type)
-{
-	int i = -1;
-	char * txt = (char*)type.c_str();
-
-	//Scope
-	Element * elements = m->GetSimulation()->elements;
-
-	// alternative names for some elements
-	if (strcasecmp(txt,"C4")==0) return PT_PLEX;
-	else if (strcasecmp(txt,"C5")==0) return PT_C5;
-	else if (strcasecmp(txt,"NONE")==0) return PT_NONE;
-	for (i=1; i<PT_NUM; i++) {
-		if (strcasecmp(txt, elements[i].Name)==0 && elements[i].Enabled)
-		{
-			return i;
-		}
-	}
-	return -1;
-}
-
-std::string CommandInterface::GetLastError()
+String CommandInterface::GetLastError()
 {
 	return lastError;
 }

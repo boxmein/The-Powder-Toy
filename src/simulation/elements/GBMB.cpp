@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_GBMB PT_GBMB 157
-Element_GBMB::Element_GBMB()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_GBMB()
 {
 	Identifier = "DEFAULT_PT_GBMB";
 	Name = "GBMB";
@@ -26,7 +29,7 @@ Element_GBMB::Element_GBMB()
 
 	Weight = 30;
 
-	Temperature = R_TEMP-2.0f	+273.15f;
+	DefaultProperties.temp = R_TEMP - 2.0f + 273.15f;
 	HeatConduct = 29;
 	Description = "Gravity bomb. Sticks to the first object it touches then produces a strong gravity push.";
 
@@ -41,12 +44,11 @@ Element_GBMB::Element_GBMB()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_GBMB::update;
-	Graphics = &Element_GBMB::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_GBMB static int update(UPDATE_FUNC_ARGS)
-int Element_GBMB::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int rx,ry,r;
 	if (parts[i].life<=0)
@@ -59,9 +61,9 @@ int Element_GBMB::update(UPDATE_FUNC_ARGS)
 					r = pmap[y+ry][x+rx];
 					if(!r)
 						continue;
-					if((r&0xFF)!=PT_BOMB && (r&0xFF)!=PT_GBMB &&
-					   (r&0xFF)!=PT_CLNE && (r&0xFF)!=PT_PCLN &&
-					   (r&0xFF)!=PT_DMND)
+					if(TYP(r)!=PT_BOMB && TYP(r)!=PT_GBMB &&
+					   TYP(r)!=PT_CLNE && TYP(r)!=PT_PCLN &&
+					   TYP(r)!=PT_DMND)
 					{
 						parts[i].life=60;
 						break;
@@ -76,10 +78,7 @@ int Element_GBMB::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_GBMB static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_GBMB::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	if (cpart->life <= 0) {
 		*pixel_mode |= PMODE_FLARE;
@@ -90,6 +89,3 @@ int Element_GBMB::graphics(GRAPHICS_FUNC_ARGS)
 	}
 	return 0;
 }
-
-
-Element_GBMB::~Element_GBMB() {}

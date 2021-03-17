@@ -1,24 +1,24 @@
 #ifndef PREVIEWMODEL_H
 #define PREVIEWMODEL_H
+#include "Config.h"
 
 #include <vector>
-#include <iostream>
-#include <pthread.h>
-#undef GetUserName //God dammit microsoft!
-#include "PreviewView.h"
-#include "client/SaveInfo.h"
-#include "gui/preview/Comment.h"
-#include "gui/search/Thumbnail.h"
-#include "client/requestbroker/RequestListener.h"
+#include "common/String.h"
 
-using namespace std;
+namespace http
+{
+	class Request;
+}
 
 class PreviewView;
-class PreviewModel: RequestListener {
+class SaveInfo;
+class SaveComment;
+class PreviewModel
+{
 	bool doOpen;
 	bool canOpen;
-	vector<PreviewView*> observers;
-	SaveInfo * save;
+	std::vector<PreviewView*> observers;
+	SaveInfo * saveInfo;
 	std::vector<unsigned char> * saveData;
 	std::vector<SaveComment*> * saveComments;
 	void notifySaveChanged();
@@ -26,11 +26,12 @@ class PreviewModel: RequestListener {
 	void notifyCommentsPageChanged();
 	void notifyCommentBoxEnabledChanged();
 
-	//Background retrieval
-	int tSaveID;
-	int tSaveDate;
+	http::Request * saveDataDownload;
+	http::Request * saveInfoDownload;
+	http::Request * commentsDownload;
+	int saveID;
+	int saveDate;
 
-	//
 	bool commentBoxEnabled;
 	bool commentsLoaded;
 	int commentsTotal;
@@ -38,7 +39,7 @@ class PreviewModel: RequestListener {
 
 public:
 	PreviewModel();
-	SaveInfo * GetSave();
+	SaveInfo * GetSaveInfo();
 	std::vector<SaveComment*> * GetComments();
 
 	bool GetCommentBoxEnabled();
@@ -57,8 +58,10 @@ public:
 	bool GetCanOpen();
 	void SetDoOpen(bool doOpen);
 	void Update();
-	virtual void OnResponseReady(void * object, int identifier);
-	virtual void OnResponseFailed(int identifier);
+	void ClearComments();
+	void OnSaveReady();
+	bool ParseSaveInfo(ByteString &saveInfoResponse);
+	bool ParseComments(ByteString &commentsResponse);
 	virtual ~PreviewModel();
 };
 

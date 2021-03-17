@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_BOMB PT_BOMB 129
-Element_BOMB::Element_BOMB()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static int graphics(GRAPHICS_FUNC_ARGS);
+
+void Element::Element_BOMB()
 {
 	Identifier = "DEFAULT_PT_BOMB";
 	Name = "BOMB";
@@ -26,11 +29,11 @@ Element_BOMB::Element_BOMB()
 
 	Weight = 30;
 
-	Temperature = R_TEMP-2.0f	+273.15f;
+	DefaultProperties.temp = R_TEMP - 2.0f + 273.15f;
 	HeatConduct = 29;
 	Description = "Bomb. Explodes and destroys all surrounding particles when it touches something.";
 
-	Properties = TYPE_PART|PROP_LIFE_DEC|PROP_LIFE_KILL_DEC|PROP_SPARKSETTLE;
+	Properties = TYPE_PART|PROP_SPARKSETTLE;
 
 	LowPressure = IPL;
 	LowPressureTransition = NT;
@@ -41,14 +44,13 @@ Element_BOMB::Element_BOMB()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_BOMB::update;
-	Graphics = &Element_BOMB::graphics;
+	Update = &update;
+	Graphics = &graphics;
 }
 
-//#TPT-Directive ElementHeader Element_BOMB static int update(UPDATE_FUNC_ARGS)
-int Element_BOMB::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
-	int r, rx, ry, nb;
+	int r, rx, ry, rt, nb;
 
 	for (rx=-1; rx<2; rx++)
 		for (ry=-1; ry<2; ry++)
@@ -57,20 +59,28 @@ int Element_BOMB::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)!=PT_BOMB && (r&0xFF)!=PT_EMBR && (r&0xFF)!=PT_DMND && (r&0xFF)!=PT_CLNE && (r&0xFF)!=PT_PCLN && (r&0xFF)!=PT_BCLN && (r&0xFF)!=PT_VIBR)
+				rt = TYP(r);
+				if (rt!=PT_BOMB && rt!=PT_EMBR && rt!=PT_DMND && rt!=PT_CLNE && rt!=PT_PCLN && rt!=PT_BCLN && rt!=PT_VIBR)
 				{
-					int rad = 8;
-					int nxi;
-					int nxj;
+					int rad = 8, nt;
+					int nxi, nxj;
 					pmap[y][x] = 0;
 					for (nxj=-rad; nxj<=rad; nxj++)
 						for (nxi=-rad; nxi<=rad; nxi++)
 							if ((pow((float)nxi,2))/(pow((float)rad,2))+(pow((float)nxj,2))/(pow((float)rad,2))<=1)
-								if ((pmap[y+nxj][x+nxi]&0xFF)!=PT_DMND && (pmap[y+nxj][x+nxi]&0xFF)!=PT_CLNE && (pmap[y+nxj][x+nxi]&0xFF)!=PT_PCLN && (pmap[y+nxj][x+nxi]&0xFF)!=PT_BCLN && (pmap[y+nxj][x+nxi]&0xFF)!=PT_VIBR)
+							{
+								int ynxj = y + nxj, xnxi = x + nxi;
+
+								if ((ynxj < 0) || (ynxj >= YRES) || (xnxi <= 0) || (xnxi >= XRES))
+									continue;
+
+								nt = TYP(pmap[ynxj][xnxi]);
+								if (nt!=PT_DMND && nt!=PT_CLNE && nt!=PT_PCLN && nt!=PT_BCLN && nt!=PT_VIBR)
 								{
-									sim->delete_part(x+nxi, y+nxj);
-									sim->pv[(y+nxj)/CELL][(x+nxi)/CELL] += 0.1f;
-									nb = sim->create_part(-3, x+nxi, y+nxj, PT_EMBR);
+									if (nt)
+										sim->kill_part(ID(pmap[ynxj][xnxi]));
+									sim->pv[(ynxj)/CELL][(xnxi)/CELL] += 0.1f;
+									nb = sim->create_part(-3, xnxi, ynxj, PT_EMBR);
 									if (nb!=-1)
 									{
 										parts[nb].tmp = 2;
@@ -78,9 +88,10 @@ int Element_BOMB::update(UPDATE_FUNC_ARGS)
 										parts[nb].temp = MAX_TEMP;
 									}
 								}
+							}
 					for (nxj=-(rad+1); nxj<=(rad+1); nxj++)
 						for (nxi=-(rad+1); nxi<=(rad+1); nxi++)
-							if ((pow((float)nxi,2))/(pow((float)(rad+1),2))+(pow((float)nxj,2))/(pow((float)(rad+1),2))<=1 && !(pmap[y+nxj][x+nxi]&0xFF))
+							if ((pow((float)nxi,2))/(pow((float)(rad+1),2))+(pow((float)nxj,2))/(pow((float)(rad+1),2))<=1 && !TYP(pmap[y+nxj][x+nxi]))
 							{
 								nb = sim->create_part(-3, x+nxi, y+nxj, PT_EMBR);
 								if (nb!=-1)
@@ -88,8 +99,8 @@ int Element_BOMB::update(UPDATE_FUNC_ARGS)
 									parts[nb].tmp = 0;
 									parts[nb].life = 50;
 									parts[nb].temp = MAX_TEMP;
-									parts[nb].vx = rand()%40-20;
-									parts[nb].vy = rand()%40-20;
+									parts[nb].vx = float(RNG::Ref().between(-20, 20));
+									parts[nb].vy = float(RNG::Ref().between(-20, 20));
 								}
 							}
 					sim->kill_part(i);
@@ -99,14 +110,8 @@ int Element_BOMB::update(UPDATE_FUNC_ARGS)
 	return 0;
 }
 
-
-//#TPT-Directive ElementHeader Element_BOMB static int graphics(GRAPHICS_FUNC_ARGS)
-int Element_BOMB::graphics(GRAPHICS_FUNC_ARGS)
-
+static int graphics(GRAPHICS_FUNC_ARGS)
 {
 	*pixel_mode |= PMODE_FLARE;
 	return 1;
 }
-
-
-Element_BOMB::~Element_BOMB() {}

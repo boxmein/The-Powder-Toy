@@ -1,6 +1,9 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_SING PT_SING 131
-Element_SING::Element_SING()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+static void create(ELEMENT_CREATE_FUNC_ARGS);
+
+void Element::Element_SING()
 {
 	Identifier = "DEFAULT_PT_SING";
 	Name = "SING";
@@ -26,7 +29,6 @@ Element_SING::Element_SING()
 
 	Weight = 86;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 70;
 	Description = "Singularity. Creates huge amounts of negative pressure and destroys everything.";
 
@@ -41,11 +43,11 @@ Element_SING::Element_SING()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_SING::update;
+	Update = &update;
+	Create = &create;
 }
 
-//#TPT-Directive ElementHeader Element_SING static int update(UPDATE_FUNC_ARGS)
-int Element_SING::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
 	int r, rx, ry, cry, crx, nb, spawncount;
 	int singularity = -parts[i].life;
@@ -75,10 +77,10 @@ int Element_SING::update(UPDATE_FUNC_ARGS)
 			}
 		}
 		spawncount = std::abs(parts[i].tmp);
-		spawncount = (spawncount>255) ? 3019 : std::pow((double)(spawncount/8), 2)*M_PI;
+		spawncount = (spawncount>255) ? 3019 : int(std::pow((double)(spawncount/8), 2)*M_PI);
 		for (int j = 0;j < spawncount; j++)
 		{
-			switch(rand()%3)
+			switch (RNG::Ref().gen() % 3)
 			{
 				case 0:
 					nb = sim->create_part(-3, x, y, PT_PHOT);
@@ -91,10 +93,10 @@ int Element_SING::update(UPDATE_FUNC_ARGS)
 					break;
 			}
 			if (nb!=-1) {
-				parts[nb].life = (rand()%300);
+				parts[nb].life = RNG::Ref().between(0, 299);
 				parts[nb].temp = MAX_TEMP/2;
-				angle = rand()*2.0f*M_PI/RAND_MAX;
-				v = (float)(rand())*5.0f/RAND_MAX;
+				angle = RNG::Ref().uniform01()*2.0f*M_PI;
+				v = RNG::Ref().uniform01()*5.0f;
 				parts[nb].vx = v*cosf(angle);
 				parts[nb].vy = v*sinf(angle);
 			}
@@ -111,35 +113,37 @@ int Element_SING::update(UPDATE_FUNC_ARGS)
 				r = pmap[y+ry][x+rx];
 				if (!r)
 					continue;
-				if ((r&0xFF)!=PT_DMND&& !(rand()%3))
+				if (TYP(r)!=PT_DMND&& RNG::Ref().chance(1, 3))
 				{
-					if ((r&0xFF)==PT_SING && parts[r>>8].life >10)
+					if (TYP(r)==PT_SING && parts[ID(r)].life >10)
 					{
-						if (parts[i].life+parts[r>>8].life > 255)
+						if (parts[i].life+parts[ID(r)].life > 255)
 							continue;
-						parts[i].life += parts[r>>8].life;
+						parts[i].life += parts[ID(r)].life;
 					}
 					else
 					{
 						if (parts[i].life+3 > 255)
 						{
-							if (parts[r>>8].type!=PT_SING && !(rand()%100))
+							if (parts[ID(r)].type!=PT_SING && RNG::Ref().chance(1, 1000))
 							{
 								int np;
-								np = sim->create_part(r>>8,x+rx,y+ry,PT_SING);
-								parts[np].life = rand()%50+60;
+								np = sim->create_part(ID(r),x+rx,y+ry,PT_SING);
+								parts[np].life = RNG::Ref().between(60, 109);
 							}
 							continue;
 						}
 						parts[i].life += 3;
 						parts[i].tmp++;
 					}
-					parts[i].temp = restrict_flt(parts[r>>8].temp+parts[i].temp, MIN_TEMP, MAX_TEMP);
-					sim->kill_part(r>>8);
+					parts[i].temp = restrict_flt(parts[ID(r)].temp+parts[i].temp, MIN_TEMP, MAX_TEMP);
+					sim->kill_part(ID(r));
 				}
 			}
 	return 0;
 }
 
-
-Element_SING::~Element_SING() {}
+static void create(ELEMENT_CREATE_FUNC_ARGS)
+{
+	sim->parts[i].life = RNG::Ref().between(60, 109);
+}

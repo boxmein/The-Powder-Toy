@@ -1,6 +1,8 @@
-#include "simulation/Elements.h"
-//#TPT-Directive ElementClass Element_CLNE PT_CLNE 9
-Element_CLNE::Element_CLNE()
+#include "simulation/ElementCommon.h"
+
+static int update(UPDATE_FUNC_ARGS);
+
+void Element::Element_CLNE()
 {
 	Identifier = "DEFAULT_PT_CLNE";
 	Name = "CLNE";
@@ -26,11 +28,10 @@ Element_CLNE::Element_CLNE()
 
 	Weight = 100;
 
-	Temperature = R_TEMP+0.0f	+273.15f;
 	HeatConduct = 251;
-	Description = "Solid. Duplicates any particles it touches.";
+	Description = "Clone. Duplicates any particles it touches.";
 
-	Properties = TYPE_SOLID|PROP_DRAWONCTYPE|PROP_NOCTYPEDRAW;
+	Properties = TYPE_SOLID | PROP_NOCTYPEDRAW;
 
 	LowPressure = IPL;
 	LowPressureTransition = NT;
@@ -41,13 +42,13 @@ Element_CLNE::Element_CLNE()
 	HighTemperature = ITH;
 	HighTemperatureTransition = NT;
 
-	Update = &Element_CLNE::update;
+	Update = &update;
+	CtypeDraw = &Element::ctypeDrawVInTmp;
 }
 
-//#TPT-Directive ElementHeader Element_CLNE static int update(UPDATE_FUNC_ARGS)
-int Element_CLNE::update(UPDATE_FUNC_ARGS)
+static int update(UPDATE_FUNC_ARGS)
 {
-	if (parts[i].ctype<=0 || parts[i].ctype>=PT_NUM || !sim->elements[parts[i].ctype].Enabled || (parts[i].ctype==PT_LIFE && (parts[i].tmp<0 || parts[i].tmp>=NGOL)))
+	if (parts[i].ctype<=0 || parts[i].ctype>=PT_NUM || !sim->elements[parts[i].ctype].Enabled)
 	{
 		int r, rx, ry, rt;
 		for (rx=-1; rx<2; rx++)
@@ -59,7 +60,7 @@ int Element_CLNE::update(UPDATE_FUNC_ARGS)
 						r = pmap[y+ry][x+rx];
 					if (!r)
 						continue;
-					rt = r&0xFF;
+					rt = TYP(r);
 					if (rt!=PT_CLNE && rt!=PT_PCLN &&
 					    rt!=PT_BCLN && rt!=PT_STKM &&
 					    rt!=PT_PBCN && rt!=PT_STKM2 &&
@@ -67,15 +68,16 @@ int Element_CLNE::update(UPDATE_FUNC_ARGS)
 					{
 						parts[i].ctype = rt;
 						if (rt==PT_LIFE || rt==PT_LAVA)
-							parts[i].tmp = parts[r>>8].ctype;
+							parts[i].tmp = parts[ID(r)].ctype;
 					}
 				}
 	}
-	else {
-		if (parts[i].ctype==PT_LIFE) sim->create_part(-1, x+rand()%3-1, y+rand()%3-1, PT_LIFE, parts[i].tmp);
-		else if (parts[i].ctype!=PT_LIGH || (rand()%30)==0)
+	else
+	{
+		if (parts[i].ctype==PT_LIFE) sim->create_part(-1, x + RNG::Ref().between(-1, 1), y + RNG::Ref().between(-1, 1), PT_LIFE, parts[i].tmp);
+		else if (parts[i].ctype!=PT_LIGH || RNG::Ref().chance(1, 30))
 		{
-			int np = sim->create_part(-1, x+rand()%3-1, y+rand()%3-1, parts[i].ctype&0xFF);
+			int np = sim->create_part(-1, x + RNG::Ref().between(-1, 1), y + RNG::Ref().between(-1, 1), TYP(parts[i].ctype));
 			if (np>=0)
 			{
 				if (parts[i].ctype==PT_LAVA && parts[i].tmp>0 && parts[i].tmp<PT_NUM && sim->elements[parts[i].tmp].HighTemperatureTransition==PT_LAVA)
@@ -85,6 +87,3 @@ int Element_CLNE::update(UPDATE_FUNC_ARGS)
 	}
 	return 0;
 }
-
-
-Element_CLNE::~Element_CLNE() {}

@@ -1,28 +1,30 @@
-#include "../data/font.h"
-#include <math.h>
+#include "../data/font.bz2.h"
+#include <cmath>
+#include <cstring>
 
-int PIXELMETHODS_CLASS::drawtext_outline(int x, int y, const char *s, int r, int g, int b, int a)
+int PIXELMETHODS_CLASS::drawtext_outline(int x, int y, String s, int r, int g, int b, int a)
 {
 	drawtext(x-1, y-1, s, 0, 0, 0, 120);
 	drawtext(x+1, y+1, s, 0, 0, 0, 120);
-	
+
 	drawtext(x-1, y+1, s, 0, 0, 0, 120);
 	drawtext(x+1, y-1, s, 0, 0, 0, 120);
-	
+
 	return drawtext(x, y, s, r, g, b, a);
 }
 
-int PIXELMETHODS_CLASS::drawtext(int x, int y, const char *s, int r, int g, int b, int a)
+int PIXELMETHODS_CLASS::drawtext(int x, int y, String str, int r, int g, int b, int a)
 {
 	bool invert = false;
-	if(!strlen(s))
+	if(str.size() == 0)
 		return 0;
 	int oR = r, oG = g, oB = b;
 	int width, height;
-	Graphics::textsize(s, width, height);
+	Graphics::textsize(str, width, height);
 	VideoBuffer texture(width, height);
 	int characterX = 0, characterY = 0;
 	int startX = characterX;
+	const String::value_type *s = str.c_str();
 	for (; *s; s++)
 	{
 		if (*s == '\n')
@@ -60,7 +62,7 @@ int PIXELMETHODS_CLASS::drawtext(int x, int y, const char *s, int r, int g, int 
 			switch (s[1])
 			{
 			case 'w':
-				r = g = b = 255; 
+				r = g = b = 255;
 				break;
 			case 'g':
 				r = g = b = 192;
@@ -98,7 +100,7 @@ int PIXELMETHODS_CLASS::drawtext(int x, int y, const char *s, int r, int g, int 
 		}
 		else
 		{
-			characterX = texture.SetCharacter(characterX, characterY, *(unsigned char *)s, r, g, b, a);
+			characterX = texture.SetCharacter(characterX, characterY, *s, r, g, b, a);
 		}
 	}
 	glEnable(GL_TEXTURE_2D);
@@ -128,16 +130,11 @@ int PIXELMETHODS_CLASS::drawtext(int x, int y, const char *s, int r, int g, int 
 	return x;
 }
 
-int PIXELMETHODS_CLASS::drawtext(int x, int y, std::string s, int r, int g, int b, int a)
+int PIXELMETHODS_CLASS::drawchar(int x, int y, String::value_type c, int r, int g, int b, int a)
 {
-	return drawtext(x, y, s.c_str(), r, g, b, a);
-}
-
-int PIXELMETHODS_CLASS::drawchar(int x, int y, int c, int r, int g, int b, int a)
-{
-	unsigned char *rp = font_data + font_ptrs[c];
+	const unsigned char *rp = font_data + font_ptrs[c];
 	int w = *(rp++);
-	VideoBuffer texture(w, 12);
+	VideoBuffer texture(w, FONT_H);
 	texture.SetCharacter(0, 0, c, r, g, b, a);
 
 	glEnable(GL_TEXTURE_2D);
@@ -162,11 +159,11 @@ int PIXELMETHODS_CLASS::drawchar(int x, int y, int c, int r, int g, int b, int a
 	return x + w;
 }
 
-int PIXELMETHODS_CLASS::addchar(int x, int y, int c, int r, int g, int b, int a)
+int PIXELMETHODS_CLASS::addchar(int x, int y, String::value_type c, int r, int g, int b, int a)
 {
-	unsigned char *rp = font_data + font_ptrs[c];
+	const unsigned char *rp = font_data + font_ptrs[c];
 	int w = *(rp++);
-	VideoBuffer texture(w, 12);
+	VideoBuffer texture(w, FONT_H);
 	texture.AddCharacter(0, 0, c, r, g, b, a);
 
 	glEnable(GL_TEXTURE_2D);
@@ -241,7 +238,7 @@ void PIXELMETHODS_CLASS::xor_bitmap(unsigned char * bitmap, int x, int y, int w,
 {
 	//glEnable(GL_COLOR_LOGIC_OP);
 	//glLogicOp(GL_XOR);
-	
+
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, textTexture);
 
