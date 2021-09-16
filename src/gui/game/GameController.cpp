@@ -1,63 +1,17 @@
 #include "GameController.h"
 
-#include "GameView.h"
-#include "GameModel.h"
-
-#include "RenderPreset.h"
-#include "Menu.h"
-#include "Tool.h"
 #include "Brush.h"
-#include "QuickOptions.h"
-#include "GameModelException.h"
-
 #include "Config.h"
-#include "Format.h"
-#include "Platform.h"
 #include "Controller.h"
+#include "Format.h"
+#include "GameModel.h"
+#include "GameModelException.h"
+#include "GameView.h"
+#include "Menu.h"
 #include "Notification.h"
-
-#include "client/GameSave.h"
-#include "client/Client.h"
-
-#include "gui/search/SearchController.h"
-#include "gui/render/RenderController.h"
-#include "gui/login/LoginController.h"
-#include "gui/preview/PreviewController.h"
-#include "gui/tags/TagsController.h"
-#include "gui/console/ConsoleController.h"
-#include "gui/localbrowser/LocalBrowserController.h"
-#include "gui/options/OptionsController.h"
-
-#include "gui/dialogues/ErrorMessage.h"
-#include "gui/dialogues/InformationMessage.h"
-#include "gui/dialogues/ConfirmPrompt.h"
-
-#include "gui/elementsearch/ElementSearchActivity.h"
-#include "gui/profile/ProfileActivity.h"
-#include "gui/colourpicker/ColourPickerActivity.h"
-#include "gui/update/UpdateActivity.h"
-#include "gui/filebrowser/FileBrowserActivity.h"
-#include "gui/save/LocalSaveActivity.h"
-#include "gui/save/ServerSaveActivity.h"
-
-#include "gui/tags/TagsView.h"
-#include "gui/search/SearchView.h"
-#include "gui/render/RenderView.h"
-#include "gui/preview/PreviewView.h"
-#include "gui/options/OptionsView.h"
-#include "gui/login/LoginView.h"
-#include "gui/localbrowser/LocalBrowserView.h"
-#include "gui/console/ConsoleView.h"
-
-#include "gui/interface/Keys.h"
-#include "gui/interface/Mouse.h"
-#include "gui/interface/Engine.h"
-
-#include "debug/DebugInfo.h"
-#include "debug/DebugParts.h"
-#include "debug/ElementPopulation.h"
-#include "debug/DebugLines.h"
-#include "debug/ParticleDebug.h"
+#include "QuickOptions.h"
+#include "RenderPreset.h"
+#include "Tool.h"
 
 #ifdef LUACONSOLE
 # include "lua/LuaScriptInterface.h"
@@ -66,13 +20,52 @@
 # include "lua/TPTScriptInterface.h"
 #endif
 
+#include "client/Client.h"
+#include "client/GameSave.h"
+#include "common/Platform.h"
+#include "debug/DebugInfo.h"
+#include "debug/DebugLines.h"
+#include "debug/DebugParts.h"
+#include "debug/ElementPopulation.h"
+#include "debug/ParticleDebug.h"
 #include "graphics/Renderer.h"
-
+#include "simulation/Air.h"
+#include "simulation/ElementClasses.h"
 #include "simulation/Simulation.h"
 #include "simulation/SimulationData.h"
-#include "simulation/Air.h"
 #include "simulation/Snapshot.h"
-#include "simulation/ElementClasses.h"
+
+#include "gui/dialogues/ErrorMessage.h"
+#include "gui/dialogues/InformationMessage.h"
+#include "gui/dialogues/ConfirmPrompt.h"
+#include "gui/interface/Keys.h"
+#include "gui/interface/Mouse.h"
+#include "gui/interface/Engine.h"
+
+#include "gui/colourpicker/ColourPickerActivity.h"
+#include "gui/elementsearch/ElementSearchActivity.h"
+#include "gui/filebrowser/FileBrowserActivity.h"
+#include "gui/profile/ProfileActivity.h"
+#include "gui/save/LocalSaveActivity.h"
+#include "gui/save/ServerSaveActivity.h"
+#include "gui/update/UpdateActivity.h"
+
+#include "gui/console/ConsoleController.h"
+#include "gui/console/ConsoleView.h"
+#include "gui/localbrowser/LocalBrowserController.h"
+#include "gui/localbrowser/LocalBrowserView.h"
+#include "gui/login/LoginController.h"
+#include "gui/login/LoginView.h"
+#include "gui/options/OptionsController.h"
+#include "gui/options/OptionsView.h"
+#include "gui/preview/PreviewController.h"
+#include "gui/preview/PreviewView.h"
+#include "gui/render/RenderController.h"
+#include "gui/render/RenderView.h"
+#include "gui/search/SearchController.h"
+#include "gui/search/SearchView.h"
+#include "gui/tags/TagsController.h"
+#include "gui/tags/TagsView.h"
 
 #ifdef GetUserName
 # undef GetUserName // dammit windows
@@ -153,12 +146,6 @@ GameController::~GameController()
 	{
 		delete *iter;
 	}
-	//deleted here because it refuses to be deleted when deleted from gameModel even with the same code
-	std::deque<Snapshot*> history = gameModel->GetHistory();
-	for(std::deque<Snapshot*>::iterator iter = history.begin(), end = history.end(); iter != end; ++iter)
-	{
-		delete *iter;
-	}
 	std::vector<QuickOption*> quickOptions = gameModel->GetQuickOptions();
 	for(std::vector<QuickOption*>::iterator iter = quickOptions.begin(), end = quickOptions.end(); iter != end; ++iter)
 	{
@@ -169,6 +156,7 @@ GameController::~GameController()
 	{
 		delete *iter;
 	}
+	delete commandInterface;
 	delete gameModel;
 	if (gameView->CloseActiveWindow())
 	{
@@ -178,75 +166,48 @@ GameController::~GameController()
 
 void GameController::HistoryRestore()
 {
-	std::deque<Snapshot*> history = gameModel->GetHistory();
-	if (!history.size())
-		return;
-	unsigned int historyPosition = gameModel->GetHistoryPosition();
-	unsigned int newHistoryPosition = std::max((int)historyPosition-1, 0);
-	// When undoing, save the current state as a final redo
-	// This way ctrl+y will always bring you back to the point right before your last ctrl+z
-	if (historyPosition == history.size())
+	if (!gameModel->HistoryCanRestore())
 	{
-		Snapshot * newSnap = gameModel->GetSimulation()->CreateSnapshot();
-		if (newSnap)
-			newSnap->Authors = Client::Ref().GetAuthorInfo();
-		delete gameModel->GetRedoHistory();
-		gameModel->SetRedoHistory(newSnap);
+		return;
 	}
-	Snapshot * snap = history[newHistoryPosition];
-	gameModel->GetSimulation()->Restore(*snap);
-	Client::Ref().OverwriteAuthorInfo(snap->Authors);
-	gameModel->SetHistory(history);
-	gameModel->SetHistoryPosition(newHistoryPosition);
+	// * When undoing for the first time since the last call to HistorySnapshot, save the current state.
+	//   Ctrl+Y needs this in order to bring you back to the point right before your last Ctrl+Z, because
+	//   the last history entry is what this Ctrl+Z brings you back to, not the current state.
+	if (!beforeRestore)
+	{
+		beforeRestore = gameModel->GetSimulation()->CreateSnapshot();
+		beforeRestore->Authors = Client::Ref().GetAuthorInfo();
+	}
+	gameModel->HistoryRestore();
+	auto &current = *gameModel->HistoryCurrent();
+	gameModel->GetSimulation()->Restore(current);
+	Client::Ref().OverwriteAuthorInfo(current.Authors);
 }
 
 void GameController::HistorySnapshot()
 {
-	std::deque<Snapshot*> history = gameModel->GetHistory();
-	unsigned int historyPosition = gameModel->GetHistoryPosition();
-	Snapshot * newSnap = gameModel->GetSimulation()->CreateSnapshot();
-	if (newSnap)
-	{
-		newSnap->Authors = Client::Ref().GetAuthorInfo();
-		while (historyPosition < history.size())
-		{
-			Snapshot * snap = history.back();
-			history.pop_back();
-			delete snap;
-		}
-		if (history.size() >= gameModel->GetUndoHistoryLimit())
-		{
-			Snapshot * snap = history.front();
-			history.pop_front();
-			delete snap;
-			if (historyPosition > history.size())
-				historyPosition--;
-		}
-		history.push_back(newSnap);
-		gameModel->SetHistory(history);
-		gameModel->SetHistoryPosition(std::min((size_t)historyPosition+1, history.size()));
-		delete gameModel->GetRedoHistory();
-		gameModel->SetRedoHistory(NULL);
-	}
+	// * Calling HistorySnapshot means the user decided to use the current state and
+	//   forfeit the option to go back to whatever they Ctrl+Z'd their way back from.
+	beforeRestore.reset();
+	gameModel->HistoryPush(gameModel->GetSimulation()->CreateSnapshot());
 }
 
 void GameController::HistoryForward()
 {
-	std::deque<Snapshot*> history = gameModel->GetHistory();
-	if (!history.size())
+	if (!gameModel->HistoryCanForward())
+	{
 		return;
-	unsigned int historyPosition = gameModel->GetHistoryPosition();
-	unsigned int newHistoryPosition = std::min((size_t)historyPosition+1, history.size());
-	Snapshot *snap;
-	if (newHistoryPosition == history.size())
-		snap = gameModel->GetRedoHistory();
-	else
-		snap = history[newHistoryPosition];
-	if (!snap)
-		return;
-	gameModel->GetSimulation()->Restore(*snap);
-	Client::Ref().OverwriteAuthorInfo(snap->Authors);
-	gameModel->SetHistoryPosition(newHistoryPosition);
+	}
+	gameModel->HistoryForward();
+	// * If gameModel has nothing more to give, we've Ctrl+Y'd our way back to the original
+	//   state; restore this instead, then get rid of it.
+	auto &current = gameModel->HistoryCurrent() ? *gameModel->HistoryCurrent() : *beforeRestore;
+	gameModel->GetSimulation()->Restore(current);
+	Client::Ref().OverwriteAuthorInfo(current.Authors);
+	if (&current == beforeRestore.get())
+	{
+		beforeRestore.reset();
+	}
 }
 
 GameView * GameController::GetView()
@@ -549,6 +510,7 @@ void GameController::CopyRegion(ui::Point point1, ui::Point point2)
 void GameController::CutRegion(ui::Point point1, ui::Point point2)
 {
 	CopyRegion(point1, point2);
+	HistorySnapshot();
 	gameModel->GetSimulation()->clear_area(point1.X, point1.Y, point2.X-point1.X, point2.Y-point1.Y);
 }
 
@@ -642,6 +604,12 @@ bool GameController::TextInput(String text)
 {
 	TextInputEvent ev(text);
 	return commandInterface->HandleEvent(LuaEvents::textinput, &ev);
+}
+
+bool GameController::TextEditing(String text)
+{
+	TextEditingEvent ev(text);
+	return commandInterface->HandleEvent(LuaEvents::textediting, &ev);
 }
 
 bool GameController::KeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
@@ -937,7 +905,7 @@ void GameController::Update()
 		if (activeTool->GetIdentifier().BeginsWith("DEFAULT_PT_"))
 		{
 			int sr = activeTool->GetToolID();
-			if (sr && sim->IsValidElement(sr))
+			if (sr && sim->IsElementOrNone(sr))
 				rightSelected = sr;
 		}
 
@@ -1042,6 +1010,16 @@ void GameController::SetHudEnable(bool hudState)
 bool GameController::GetHudEnable()
 {
 	return gameView->GetHudEnable();
+}
+
+void GameController::SetBrushEnable(bool brushState)
+{
+	gameView->SetBrushEnable(brushState);
+}
+
+bool GameController::GetBrushEnable()
+{
+	return gameView->GetBrushEnable();
 }
 
 void GameController::SetDebugHUD(bool hudState)
@@ -1225,7 +1203,7 @@ void GameController::OpenLocalSaveWindow(bool asCurrent)
 			gameSave->authors = localSaveInfo;
 
 			gameModel->SetSaveFile(&tempSave, gameView->ShiftBehaviour());
-			Client::Ref().MakeDirectory(LOCAL_SAVE_DIR);
+			Platform::MakeDirectory(LOCAL_SAVE_DIR);
 			std::vector<char> saveData = gameSave->Serialise();
 			if (saveData.size() == 0)
 				new ErrorMessage("Error", "Unable to serialize game data.");
@@ -1370,7 +1348,7 @@ void GameController::OpenOptions()
 {
 	options = new OptionsController(gameModel, [this] {
 		gameModel->UpdateQuickOptions();
-		Client::Ref().WritePrefs();
+		Client::Ref().WritePrefs(); // * I don't think there's a reason for this but I'm too lazy to check. -- LBPHacker
 	});
 	ui::Engine::Ref().ShowWindow(options->GetView());
 
@@ -1514,6 +1492,9 @@ void GameController::ClearSim()
 
 String GameController::ElementResolve(int type, int ctype)
 {
+	// "NONE" should never be displayed in the HUD
+	if (!type)
+		return "";
 	if (gameModel && gameModel->GetSimulation())
 	{
 		return gameModel->GetSimulation()->ElementResolve(type, ctype);
@@ -1546,9 +1527,9 @@ void GameController::ReloadSim()
 
 bool GameController::IsValidElement(int type)
 {
-	if(gameModel && gameModel->GetSimulation())
+	if (gameModel && gameModel->GetSimulation())
 	{
-		return (type && gameModel->GetSimulation()->IsValidElement(type));
+		return (type && gameModel->GetSimulation()->IsElement(type));
 	}
 	else
 		return false;

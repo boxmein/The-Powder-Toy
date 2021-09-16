@@ -1,30 +1,30 @@
 #include "OptionsView.h"
 
+#include <cstdio>
+#include <cstring>
+#include "SDLCompat.h"
+
 #include "OptionsController.h"
 #include "OptionsModel.h"
 
-#include <cstdio>
-#include <cstring>
-#ifdef WIN
-#include <direct.h>
-#define getcwd _getcwd
-#else
-#include <unistd.h>
-#endif
-#include "SDLCompat.h"
-#include "Platform.h"
-
+#include "client/Client.h"
+#include "common/Platform.h"
+#include "graphics/Graphics.h"
 #include "gui/Style.h"
+#include "simulation/ElementDefs.h"
+
+#include "gui/dialogues/ConfirmPrompt.h"
+#include "gui/dialogues/InformationMessage.h"
 #include "gui/interface/Button.h"
-#include "gui/interface/Label.h"
+#include "gui/interface/Checkbox.h"
 #include "gui/interface/DropDown.h"
 #include "gui/interface/Engine.h"
-#include "gui/interface/Checkbox.h"
-
-#include "graphics/Graphics.h"
+#include "gui/interface/Label.h"
+#include "gui/interface/Textbox.h"
 
 OptionsView::OptionsView():
-	ui::Window(ui::Point(-1, -1), ui::Point(320, 340)){
+	ui::Window(ui::Point(-1, -1), ui::Point(320, 340))
+	{
 
 	auto autowidth = [this](ui::Component *c) {
 		c->Size.X = Size.X - c->Position.X - 12;
@@ -115,6 +115,24 @@ OptionsView::OptionsView():
 	airMode->SetActionCallback({ [this] { c->SetAirMode(airMode->GetOption().second); } });
 
 	tempLabel = new ui::Label(ui::Point(8, currentY), ui::Point(Size.X-96, 16), "Air Simulation Mode");
+	tempLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
+	tempLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
+	scrollPanel->AddChild(tempLabel);
+
+	currentY+=20;
+	ambientAirTemp = new ui::Textbox(ui::Point(Size.X-95, currentY), ui::Point(60, 16));
+	ambientAirTemp->SetActionCallback({ [this] {
+		UpdateAirTemp(ambientAirTemp->GetText(), false);
+	} });
+	ambientAirTemp->SetDefocusCallback({ [this] {
+		UpdateAirTemp(ambientAirTemp->GetText(), true);
+	}});
+	scrollPanel->AddChild(ambientAirTemp);
+
+	ambientAirTempPreview = new ui::Button(ui::Point(Size.X-31, currentY), ui::Point(16, 16), "", "Preview");
+	scrollPanel->AddChild(ambientAirTempPreview);
+
+	tempLabel = new ui::Label(ui::Point(8, currentY), ui::Point(Size.X-96, 16), "Ambient Air Temperature");
 	tempLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
 	tempLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
 	scrollPanel->AddChild(tempLabel);
@@ -251,17 +269,6 @@ OptionsView::OptionsView():
 	scrollPanel->AddChild(tempLabel);
 	scrollPanel->AddChild(momentumScroll);
 
-	currentY += 20;
-	autoDrawLimit = new ui::Checkbox(ui::Point(8, currentY), ui::Point(1, 16), "Auto Draw Rate", "");
-	autowidth(autoDrawLimit);
-	autoDrawLimit->SetActionCallback({ [this] { c->SetAutoDrawLimit(autoDrawLimit->GetChecked()); } });
-	tempLabel = new ui::Label(ui::Point(autoDrawLimit->Position.X + Graphics::textwidth(autoDrawLimit->GetText()) + 20, currentY), ui::Point(1, 16), "\bg- Based on monitor refresh rate at startup");
-	autowidth(tempLabel);
-	tempLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
-	tempLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
-	scrollPanel->AddChild(tempLabel);
-	scrollPanel->AddChild(autoDrawLimit);
-
 	currentY+=20;
 	mouseClickRequired = new ui::Checkbox(ui::Point(8, currentY), ui::Point(1, 16), "Sticky Categories", "");
 	autowidth(mouseClickRequired);
@@ -295,8 +302,6 @@ OptionsView::OptionsView():
 	scrollPanel->AddChild(tempLabel);
 	scrollPanel->AddChild(perfectCirclePressure);
 
-	//perfectCirclePressure
-
 	currentY+=20;
 	decoSpace = new ui::DropDown(ui::Point(8, currentY), ui::Point(60, 16));
 	decoSpace->SetActionCallback({ [this] { c->SetDecoSpace(decoSpace->GetOption().second); } });
@@ -314,23 +319,25 @@ OptionsView::OptionsView():
 	currentY+=20;
 	ui::Button * dataFolderButton = new ui::Button(ui::Point(8, currentY), ui::Point(90, 16), "Open Data Folder");
 	dataFolderButton->SetActionCallback({ [] {
-		auto *cwd = getcwd(NULL, 0);
-		if (cwd)
-		{
+		ByteString cwd = Platform::GetCwd();
+		if (!cwd.empty())
 			Platform::OpenURI(cwd);
-		}
 		else
-		{
 			fprintf(stderr, "cannot open data folder: getcwd(...) failed\n");
-		}
 	} });
 	scrollPanel->AddChild(dataFolderButton);
 
-	tempLabel = new ui::Label(ui::Point(dataFolderButton->Position.X+dataFolderButton->Size.X+3, currentY), ui::Point(1, 16), "\bg- Open the data and preferences folder");
-	autowidth(tempLabel);
-	tempLabel->Appearance.HorizontalAlign = ui::Appearance::AlignLeft;
-	tempLabel->Appearance.VerticalAlign = ui::Appearance::AlignMiddle;
-	scrollPanel->AddChild(tempLabel);
+	ui::Button * migrationButton = new ui::Button(ui::Point(Size.X - 178, currentY), ui::Point(163, 16), "Migrate to shared data directory");
+	migrationButton->SetActionCallback({ [] {
+		ByteString from = Platform::originalCwd;
+		ByteString to = Platform::sharedCwd;
+		new ConfirmPrompt("Do Migration?", "This will migrate all stamps, saves, and scripts from\n\bt" + from.FromUtf8() + "\bw\nto the shared data directory at\n\bt" + to.FromUtf8() + "\bw\n\n" +
+			 "Files that already exist will not be overwritten.", { [=] () {
+				 String ret = Platform::DoMigration(from, to);
+				new InformationMessage("Migration Complete", ret, false);
+			 } });
+	} });
+	scrollPanel->AddChild(migrationButton);
 
 	ui::Button * tempButton = new ui::Button(ui::Point(0, Size.Y-16), ui::Point(Size.X, 16), "OK");
 	tempButton->SetActionCallback({ [this] { c->Exit(); } });
@@ -341,6 +348,72 @@ OptionsView::OptionsView():
 	scrollPanel->InnerSize = ui::Point(Size.X, currentY);
 }
 
+void OptionsView::UpdateAmbientAirTempPreview(float airTemp, bool isValid)
+{
+	if (isValid)
+	{
+		int HeatToColour(float temp);
+		int c = HeatToColour(airTemp);
+		ambientAirTempPreview->Appearance.BackgroundInactive = ui::Colour(PIXR(c), PIXG(c), PIXB(c));
+		ambientAirTempPreview->SetText("");
+	}
+	else
+	{
+		ambientAirTempPreview->Appearance.BackgroundInactive = ui::Colour(0, 0, 0);
+		ambientAirTempPreview->SetText("?");
+	}
+	ambientAirTempPreview->Appearance.BackgroundHover = ambientAirTempPreview->Appearance.BackgroundInactive;
+}
+
+void OptionsView::UpdateAirTemp(String temp, bool isDefocus)
+{
+	// Parse air temp and determine validity
+	float airTemp;
+	bool isValid;
+	try
+	{
+		void ParseFloatProperty(String value, float &out);
+		ParseFloatProperty(temp, airTemp);
+		isValid = true;
+	}
+	catch (const std::exception &ex)
+	{
+		isValid = false;
+	}
+
+	// While defocusing, correct out of range temperatures and empty textboxes
+	if (isDefocus)
+	{
+		if (temp.empty())
+		{
+			isValid = true;
+			airTemp = float(R_TEMP) + 273.15f;
+		}
+		else if (!isValid)
+			return;
+		else if (airTemp < MIN_TEMP)
+			airTemp = MIN_TEMP;
+		else if (airTemp > MAX_TEMP)
+			airTemp = MAX_TEMP;
+		else
+			return;
+
+		// Update textbox with the new value
+		StringBuilder sb;
+		sb << Format::Precision(2) << airTemp;
+		ambientAirTemp->SetText(sb.Build());
+	}
+	// Out of range temperatures are invalid, preview should go away
+	else if (airTemp < MIN_TEMP || airTemp > MAX_TEMP)
+		isValid = false;
+
+	// If valid, set temp
+	if (isValid)
+		c->SetAmbientAirTemperature(airTemp);
+
+	UpdateAmbientAirTempPreview(airTemp, isValid);
+}
+
 void OptionsView::NotifySettingsChanged(OptionsModel * sender)
 {
 	heatSimulation->SetChecked(sender->GetHeatSimulation());
@@ -348,6 +421,16 @@ void OptionsView::NotifySettingsChanged(OptionsModel * sender)
 	newtonianGravity->SetChecked(sender->GetNewtonianGravity());
 	waterEqualisation->SetChecked(sender->GetWaterEqualisation());
 	airMode->SetOption(sender->GetAirMode());
+	// Initialize air temp and preview only when the options menu is opened, and not when user is actively editing the textbox
+	if (!initializedAirTempPreview)
+	{
+		initializedAirTempPreview = true;
+		float airTemp = sender->GetAmbientAirTemperature();
+		UpdateAmbientAirTempPreview(airTemp, true);
+		StringBuilder sb;
+		sb << Format::Precision(2) << airTemp;
+		ambientAirTemp->SetText(sb.Build());
+	}
 	gravityMode->SetOption(sender->GetGravityMode());
 	decoSpace->SetOption(sender->GetDecoSpace());
 	edgeMode->SetOption(sender->GetEdgeMode());
@@ -362,7 +445,6 @@ void OptionsView::NotifySettingsChanged(OptionsModel * sender)
 	includePressure->SetChecked(sender->GetIncludePressure());
 	perfectCirclePressure->SetChecked(sender->GetPerfectCircle());
 	momentumScroll->SetChecked(sender->GetMomentumScroll());
-	autoDrawLimit->SetChecked(sender->GetAutoDrawLimit());
 }
 
 void OptionsView::AttachController(OptionsController * c_)

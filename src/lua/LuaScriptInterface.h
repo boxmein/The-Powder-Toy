@@ -8,6 +8,7 @@
 #include "CommandInterface.h"
 #include "lua/LuaEvents.h"
 #include "simulation/StructProperty.h"
+#include "simulation/ElementDefs.h"
 
 #include <map>
 
@@ -44,6 +45,7 @@ class LuaScriptInterface: public CommandInterface
 	bool luacon_mousedown;
 	bool currentCommand;
 	TPTScriptInterface * legacy;
+	int textInputRefcount;
 
 	// signs
 	static int simulation_signIndex(lua_State *l);
@@ -82,6 +84,7 @@ class LuaScriptInterface: public CommandInterface
 	static int simulation_decoLine(lua_State * l);
 	static int simulation_decoBox(lua_State * l);
 	static int simulation_decoColor(lua_State * l);
+	static int simulation_floodDeco(lua_State * l);
 	static int simulation_clearSim(lua_State * l);
 	static int simulation_clearRect(lua_State * l);
 	static int simulation_resetTemp(lua_State * l);
@@ -110,6 +113,11 @@ class LuaScriptInterface: public CommandInterface
 	static int simulation_framerender(lua_State * l);
 	static int simulation_gspeed(lua_State * l);
 	static int simulation_takeSnapshot(lua_State *l);
+	static int simulation_replaceModeFlags(lua_State *l);
+	static int simulation_listCustomGol(lua_State *l);
+	static int simulation_addCustomGol(lua_State *l);
+	static int simulation_removeCustomGol(lua_State *l);
+
 
 	//Renderer
 	void initRendererAPI();
@@ -119,6 +127,7 @@ class LuaScriptInterface: public CommandInterface
 	static int renderer_decorations(lua_State * l);
 	static int renderer_grid(lua_State * l);
 	static int renderer_debugHUD(lua_State * l);
+	static int renderer_showBrush(lua_State * l);
 	static int renderer_depth3d(lua_State * l);
 	static int renderer_zoomEnabled(lua_State *l);
 	static int renderer_zoomWindowInfo(lua_State *l);
@@ -138,6 +147,9 @@ class LuaScriptInterface: public CommandInterface
 	static int interface_closeWindow(lua_State * l);
 	static int interface_addComponent(lua_State * l);
 	static int interface_removeComponent(lua_State * l);
+	static int interface_grabTextInput(lua_State * l);
+	static int interface_dropTextInput(lua_State * l);
+	static int interface_textInputRect(lua_State * l);
 
 	void initGraphicsAPI();
 	static int graphics_textSize(lua_State * l);
@@ -180,6 +192,8 @@ class LuaScriptInterface: public CommandInterface
 	static int http_get(lua_State * l);
 	static int http_post(lua_State * l);
 
+	void initSocketAPI();
+
 	std::vector<LuaSmartRef> lua_el_func_v, lua_gr_func_v, lua_cd_func_v;
 	std::vector<int> lua_el_mode_v;
 
@@ -195,6 +209,9 @@ public:
 	std::map<LuaComponent *, LuaSmartRef> grabbed_components;
 	LuaScriptInterface(GameController * c, GameModel * m);
 
+	char custom_can_move[PT_NUM][PT_NUM];
+	void custom_init_can_move();
+
 	void OnTick() override;
 	bool HandleEvent(LuaEvents::EventTypes eventType, Event * event) override;
 
@@ -205,5 +222,6 @@ public:
 	virtual ~LuaScriptInterface();
 };
 
+extern LuaScriptInterface *luacon_ci;
 
 #endif /* LUASCRIPTINTERFACE_H_ */

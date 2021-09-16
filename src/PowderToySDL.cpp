@@ -39,20 +39,20 @@
 #include "Format.h"
 #include "Misc.h"
 
-#include "graphics/Graphics.h"
-
-#include "client/SaveInfo.h"
+#include "client/Client.h"
 #include "client/GameSave.h"
 #include "client/SaveFile.h"
-#include "client/Client.h"
+#include "client/SaveInfo.h"
+#include "common/Platform.h"
+#include "graphics/Graphics.h"
+#include "gui/Style.h"
 
 #include "gui/game/GameController.h"
 #include "gui/game/GameView.h"
-#include "gui/dialogues/ErrorMessage.h"
 #include "gui/dialogues/ConfirmPrompt.h"
-#include "gui/interface/Keys.h"
-#include "gui/Style.h"
+#include "gui/dialogues/ErrorMessage.h"
 #include "gui/interface/Engine.h"
+#include "gui/interface/Keys.h"
 
 #define INCLUDE_SYSWM
 #include "SDLCompat.h"
@@ -68,7 +68,27 @@ bool altFullscreen = false;
 bool forceIntegerScaling = true;
 bool resizable = false;
 bool momentumScroll = true;
+bool showAvatars = true;
 
+void StartTextInput()
+{
+	SDL_StartTextInput();
+}
+
+void StopTextInput()
+{
+	SDL_StopTextInput();
+}
+
+void SetTextInputRect(int x, int y, int w, int h)
+{
+	SDL_Rect rect;
+	rect.x = x;
+	rect.y = y;
+	rect.w = w;
+	rect.h = h;
+	SDL_SetTextInputRect(&rect);
+}
 
 void ClipboardPush(ByteString text)
 {
@@ -143,7 +163,7 @@ void CalculateMousePosition(int *x, int *y)
 #ifdef OGLI
 void blit()
 {
-	SDL_GL_SwapBuffers();
+	SDL_GL_SwapWindow(sdl_window);
 }
 #else
 void blit(pixel * vid)
@@ -180,14 +200,6 @@ void SDLOpen()
 		{
 			desktopWidth = rect.w;
 			desktopHeight = rect.h;
-		}
-		if (Client::Ref().GetPrefBool("AutoDrawLimit", false))
-		{
-			SDL_DisplayMode displayMode;
-			if (!SDL_GetCurrentDisplayMode(displayIndex, &displayMode) && displayMode.refresh_rate >= 60)
-			{
-				ui::Engine::Ref().SetDrawingFrequencyLimit(displayMode.refresh_rate);
-			}
 		}
 	}
 
@@ -228,7 +240,7 @@ void SDLSetScreen(int scale_, bool resizable_, bool fullscreen_, bool altFullscr
 	// Recreate the window when toggling fullscreen, due to occasional issues
 	// Also recreate it when enabling resizable windows, to fix bugs on windows,
 	//  see https://github.com/jacob1/The-Powder-Toy/issues/24
-	if (changingFullscreen || (changingResizable && resizable && !fullscreen))
+	if (changingFullscreen || altFullscreen || (changingResizable && resizable && !fullscreen))
 	{
 		RecreateWindow();
 		return;
@@ -424,6 +436,13 @@ void EventProcess(SDL_Event event)
 			break;
 		}
 		engine->onTextInput(ByteString(event.text.text).FromUtf8());
+		break;
+	case SDL_TEXTEDITING:
+		if (SDL_GetModState() & KMOD_GUI)
+		{
+			break;
+		}
+		engine->onTextEditing(ByteString(event.edit.text).FromUtf8(), event.edit.start);
 		break;
 	case SDL_MOUSEWHEEL:
 	{
@@ -693,6 +712,10 @@ int GuessBestScale()
 	return guess;
 }
 
+#ifdef main
+# undef main // thank you sdl
+#endif
+
 int main(int argc, char * argv[])
 {
 #if defined(_DEBUG) && defined(_MSC_VER)
@@ -709,32 +732,34 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
+	Platform::originalCwd = Platform::GetCwd();
+
 	std::map<ByteString, ByteString> arguments = readArguments(argc, argv);
 
-	if(arguments["ddir"].length())
+	if (arguments["ddir"].length())
 	{
 #ifdef WIN
 		int failure = _chdir(arguments["ddir"].c_str());
 #else
 		int failure = chdir(arguments["ddir"].c_str());
 #endif
-		if (failure)
-		{
+		if (!failure)
+			Platform::sharedCwd = Platform::GetCwd();
+		else
 			perror("failed to chdir to requested ddir");
-		}
 	}
 	else
 	{
+		char *ddir = SDL_GetPrefPath(NULL, "The Powder Toy");
 #ifdef WIN
 		struct _stat s;
-		if(_stat("powder.pref", &s) != 0)
+		if (_stat("powder.pref", &s) != 0)
 #else
 		struct stat s;
-		if(stat("powder.pref", &s) != 0)
+		if (stat("powder.pref", &s) != 0)
 #endif
 		{
-			char *ddir = SDL_GetPrefPath(NULL, "The Powder Toy");
-			if(ddir)
+			if (ddir)
 			{
 #ifdef WIN
 				int failure = _chdir(ddir);
@@ -744,9 +769,16 @@ int main(int argc, char * argv[])
 				if (failure)
 				{
 					perror("failed to chdir to default ddir");
+					SDL_free(ddir);
+					ddir = nullptr;
 				}
-				SDL_free(ddir);
 			}
+		}
+
+		if (ddir)
+		{
+			Platform::sharedCwd = ddir;
+			SDL_free(ddir);
 		}
 	}
 
@@ -756,6 +788,7 @@ int main(int argc, char * argv[])
 	altFullscreen = Client::Ref().GetPrefBool("AltFullscreen", false);
 	forceIntegerScaling = Client::Ref().GetPrefBool("ForceIntegerScaling", true);
 	momentumScroll = Client::Ref().GetPrefBool("MomentumScroll", true);
+	showAvatars = Client::Ref().GetPrefBool("ShowAvatars", true);
 
 
 	if(arguments["kiosk"] == "true")
@@ -794,9 +827,13 @@ int main(int argc, char * argv[])
 			Client::Ref().SetPref("Proxy", arguments["proxy"]);
 		}
 	}
-	else if(Client::Ref().GetPrefString("Proxy", "").length())
+	else
 	{
-		proxyString = (Client::Ref().GetPrefByteString("Proxy", ""));
+		auto proxyPref = Client::Ref().GetPrefByteString("Proxy", "");
+		if (proxyPref.length())
+		{
+			proxyString = proxyPref;
+		}
 	}
 
 	bool disableNetwork = false;
@@ -834,13 +871,17 @@ int main(int argc, char * argv[])
 		exit(-1);
 	}
 #endif
+
+	StopTextInput();
+
 	ui::Engine::Ref().g = new Graphics();
 	ui::Engine::Ref().Scale = scale;
 	ui::Engine::Ref().SetResizable(resizable);
 	ui::Engine::Ref().Fullscreen = fullscreen;
 	ui::Engine::Ref().SetAltFullscreen(altFullscreen);
 	ui::Engine::Ref().SetForceIntegerScaling(forceIntegerScaling);
-	ui::Engine::Ref().SetMomentumScroll(momentumScroll);
+	ui::Engine::Ref().MomentumScroll = momentumScroll;
+	ui::Engine::Ref().ShowAvatars = showAvatars;
 
 	engine = &ui::Engine::Ref();
 	engine->SetMaxSize(desktopWidth, desktopHeight);
@@ -875,12 +916,12 @@ int main(int argc, char * argv[])
 #ifdef DEBUG
 			std::cout << "Loading " << arguments["open"] << std::endl;
 #endif
-			if(Client::Ref().FileExists(arguments["open"]))
+			if (Platform::FileExists(arguments["open"]))
 			{
 				try
 				{
 					std::vector<unsigned char> gameSaveData = Client::Ref().ReadFile(arguments["open"]);
-					if(!gameSaveData.size())
+					if (!gameSaveData.size())
 					{
 						new ErrorMessage("Error", "Could not read file");
 					}
@@ -894,7 +935,7 @@ int main(int argc, char * argv[])
 					}
 
 				}
-				catch(std::exception & e)
+				catch (std::exception & e)
 				{
 					new ErrorMessage("Error", "Could not open save file:\n" + ByteString(e.what()).FromUtf8()) ;
 				}
@@ -905,7 +946,7 @@ int main(int argc, char * argv[])
 			}
 		}
 
-		if(arguments["ptsave"].length())
+		if (arguments["ptsave"].length())
 		{
 			engine->g->fillrect((engine->GetWidth()/2)-101, (engine->GetHeight()/2)-26, 202, 52, 0, 0, 0, 210);
 			engine->g->drawrect((engine->GetWidth()/2)-100, (engine->GetHeight()/2)-25, 200, 50, 255, 255, 255, 180);
@@ -965,11 +1006,21 @@ int main(int argc, char * argv[])
 	}
 #endif
 
-	Client::Ref().SetPref("Scale", ui::Engine::Ref().GetScale());
 	ui::Engine::Ref().CloseWindow();
 	delete gameController;
 	delete ui::Engine::Ref().g;
 	Client::Ref().Shutdown();
+	if (SDL_GetWindowFlags(sdl_window) & SDL_WINDOW_OPENGL)
+	{
+		// * nvidia-460 egl registers callbacks with x11 that end up being called
+		//   after egl is unloaded unless we grab it here and release it after
+		//   sdl closes the display. this is an nvidia driver weirdness but
+		//   technically an sdl bug. glfw has this fixed:
+		//   https://github.com/glfw/glfw/commit/9e6c0c747be838d1f3dc38c2924a47a42416c081
+		SDL_GL_LoadLibrary(NULL);
+		SDL_QuitSubSystem(SDL_INIT_VIDEO);
+		SDL_GL_UnloadLibrary();
+	}
 	SDL_Quit();
 	return 0;
 }

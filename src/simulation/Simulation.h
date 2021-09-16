@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <vector>
 #include <array>
+#include <memory>
 
 #include "Particle.h"
 #include "Stickman.h"
@@ -121,8 +122,8 @@ public:
 	void SaveSimOptions(GameSave * gameSave);
 	SimulationSample GetSample(int x, int y);
 
-	Snapshot * CreateSnapshot();
-	void Restore(const Snapshot & snap);
+	std::unique_ptr<Snapshot> CreateSnapshot();
+	void Restore(const Snapshot &snap);
 
 	int is_blocking(int t, int x, int y);
 	int is_boundary(int pt, int x, int y);
@@ -134,7 +135,10 @@ public:
 	int eval_move(int pt, int nx, int ny, unsigned *rr);
 	void init_can_move();
 	bool IsWallBlocking(int x, int y, int type);
-	bool IsValidElement(int type) {
+	bool IsElement(int type) {
+		return (type > 0 && type < PT_NUM && elements[type].Enabled);
+	}
+	bool IsElementOrNone(int type) {
 		return (type >= 0 && type < PT_NUM && elements[type].Enabled);
 	}
 	void create_cherenkov_photon(int pp);
@@ -237,6 +241,7 @@ private:
 
 public:
 	const CustomGOLData *GetCustomGOLByRule(int rule) const;
+	const std::vector<CustomGOLData> GetCustomGol() { return customGol; }
 	void SetCustomGOL(std::vector<CustomGOLData> newCustomGol);
 
 private:
