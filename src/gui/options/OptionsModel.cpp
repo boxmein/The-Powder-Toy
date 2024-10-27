@@ -1,13 +1,10 @@
 #include "OptionsModel.h"
-
 #include "OptionsView.h"
-
 #include "simulation/Simulation.h"
 #include "simulation/Air.h"
-#include "simulation/Gravity.h"
-
-#include "client/Client.h"
-
+#include "simulation/gravity/Gravity.h"
+#include "prefs/GlobalPrefs.h"
+#include "common/clipboard/Clipboard.h"
 #include "gui/interface/Engine.h"
 #include "gui/game/GameModel.h"
 
@@ -46,15 +43,12 @@ void OptionsModel::SetAmbientHeatSimulation(bool state)
 
 bool OptionsModel::GetNewtonianGravity()
 {
-	return sim->grav->IsEnabled();
+	return bool(sim->grav);
 }
 
 void OptionsModel::SetNewtonianGravity(bool state)
 {
-	if(state)
-		sim->grav->start_grav_async();
-	else
-		sim->grav->stop_grav_async();
+	sim->EnableNewtonianGravity(state);
 	notifySettingsChanged();
 }
 
@@ -85,8 +79,31 @@ int OptionsModel::GetEdgeMode()
 }
 void OptionsModel::SetEdgeMode(int edgeMode)
 {
-	Client::Ref().SetPref("Simulation.EdgeMode", edgeMode);
+	GlobalPrefs::Ref().Set("Simulation.EdgeMode", edgeMode);
 	gModel->SetEdgeMode(edgeMode);
+	notifySettingsChanged();
+}
+
+int OptionsModel::GetTemperatureScale()
+{
+	return gModel->GetTemperatureScale();
+}
+void OptionsModel::SetTemperatureScale(int temperatureScale)
+{
+	GlobalPrefs::Ref().Set("Renderer.TemperatureScale", temperatureScale);
+	gModel->SetTemperatureScale(temperatureScale);
+	notifySettingsChanged();
+}
+
+int OptionsModel::GetThreadedRendering()
+{
+	return gModel->GetThreadedRendering();
+}
+
+void OptionsModel::SetThreadedRendering(bool newThreadedRendering)
+{
+	GlobalPrefs::Ref().Set("Renderer.SeparateThread", newThreadedRendering);
+	gModel->SetThreadedRendering(newThreadedRendering);
 	notifySettingsChanged();
 }
 
@@ -96,7 +113,7 @@ float OptionsModel::GetAmbientAirTemperature()
 }
 void OptionsModel::SetAmbientAirTemperature(float ambientAirTemp)
 {
-	Client::Ref().SetPref("Simulation.AmbientAirTemp", ambientAirTemp);
+	GlobalPrefs::Ref().Set("Simulation.AmbientAirTemp", ambientAirTemp);
 	gModel->SetAmbientAirTemperature(ambientAirTemp);
 	notifySettingsChanged();
 }
@@ -111,6 +128,28 @@ void OptionsModel::SetGravityMode(int gravityMode)
 	notifySettingsChanged();
 }
 
+float OptionsModel::GetCustomGravityX()
+{
+	return sim->customGravityX;
+}
+
+void OptionsModel::SetCustomGravityX(float x)
+{
+	sim->customGravityX = x;
+	notifySettingsChanged();
+}
+
+float OptionsModel::GetCustomGravityY()
+{
+	return sim->customGravityY;
+}
+
+void OptionsModel::SetCustomGravityY(float y)
+{
+	sim->customGravityY = y;
+	notifySettingsChanged();
+}
+
 int OptionsModel::GetScale()
 {
 	return ui::Engine::Ref().GetScale();
@@ -119,7 +158,31 @@ int OptionsModel::GetScale()
 void OptionsModel::SetScale(int scale)
 {
 	ui::Engine::Ref().SetScale(scale);
-	Client::Ref().SetPref("Scale", int(scale));
+	GlobalPrefs::Ref().Set("Scale", int(scale));
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetGraveExitsConsole()
+{
+	return ui::Engine::Ref().GraveExitsConsole;
+}
+
+void OptionsModel::SetGraveExitsConsole(bool graveExitsConsole)
+{
+	ui::Engine::Ref().GraveExitsConsole = graveExitsConsole;
+	GlobalPrefs::Ref().Set("GraveExitsConsole", graveExitsConsole);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetNativeClipoard()
+{
+	return Clipboard::GetEnabled();
+}
+
+void OptionsModel::SetNativeClipoard(bool nativeClipoard)
+{
+	Clipboard::SetEnabled(nativeClipoard);
+	GlobalPrefs::Ref().Set("NativeClipboard.Enabled", nativeClipoard);
 	notifySettingsChanged();
 }
 
@@ -131,7 +194,7 @@ bool OptionsModel::GetResizable()
 void OptionsModel::SetResizable(bool resizable)
 {
 	ui::Engine::Ref().SetResizable(resizable);
-	Client::Ref().SetPref("Resizable", resizable);
+	GlobalPrefs::Ref().Set("Resizable", resizable);
 	notifySettingsChanged();
 }
 
@@ -142,19 +205,19 @@ bool OptionsModel::GetFullscreen()
 void OptionsModel::SetFullscreen(bool fullscreen)
 {
 	ui::Engine::Ref().SetFullscreen(fullscreen);
-	Client::Ref().SetPref("Fullscreen", fullscreen);
+	GlobalPrefs::Ref().Set("Fullscreen", fullscreen);
 	notifySettingsChanged();
 }
 
-bool OptionsModel::GetAltFullscreen()
+bool OptionsModel::GetChangeResolution()
 {
-	return ui::Engine::Ref().GetAltFullscreen();
+	return ui::Engine::Ref().GetChangeResolution();
 }
 
-void OptionsModel::SetAltFullscreen(bool altFullscreen)
+void OptionsModel::SetChangeResolution(bool newChangeResolution)
 {
-	ui::Engine::Ref().SetAltFullscreen(altFullscreen);
-	Client::Ref().SetPref("AltFullscreen", altFullscreen);
+	ui::Engine::Ref().SetChangeResolution(newChangeResolution);
+	GlobalPrefs::Ref().Set("AltFullscreen", newChangeResolution);
 	notifySettingsChanged();
 }
 
@@ -166,7 +229,19 @@ bool OptionsModel::GetForceIntegerScaling()
 void OptionsModel::SetForceIntegerScaling(bool forceIntegerScaling)
 {
 	ui::Engine::Ref().SetForceIntegerScaling(forceIntegerScaling);
-	Client::Ref().SetPref("ForceIntegerScaling", forceIntegerScaling);
+	GlobalPrefs::Ref().Set("ForceIntegerScaling", forceIntegerScaling);
+	notifySettingsChanged();
+}
+
+bool OptionsModel::GetBlurryScaling()
+{
+	return ui::Engine::Ref().GetBlurryScaling();
+}
+
+void OptionsModel::SetBlurryScaling(bool newBlurryScaling)
+{
+	ui::Engine::Ref().SetBlurryScaling(newBlurryScaling);
+	GlobalPrefs::Ref().Set("BlurryScaling", newBlurryScaling);
 	notifySettingsChanged();
 }
 
@@ -177,7 +252,7 @@ bool OptionsModel::GetFastQuit()
 void OptionsModel::SetFastQuit(bool fastquit)
 {
 	ui::Engine::Ref().SetFastQuit(fastquit);
-	Client::Ref().SetPref("FastQuit", bool(fastquit));
+	GlobalPrefs::Ref().Set("FastQuit", bool(fastquit));
 	notifySettingsChanged();
 }
 
@@ -187,7 +262,7 @@ int OptionsModel::GetDecoSpace()
 }
 void OptionsModel::SetDecoSpace(int decoSpace)
 {
-	Client::Ref().SetPref("Simulation.DecoSpace", decoSpace);
+	GlobalPrefs::Ref().Set("Simulation.DecoSpace", decoSpace);
 	gModel->SetDecoSpace(decoSpace);
 	notifySettingsChanged();
 }
@@ -200,7 +275,7 @@ bool OptionsModel::GetShowAvatars()
 void OptionsModel::SetShowAvatars(bool state)
 {
 	ui::Engine::Ref().ShowAvatars = state;
-	Client::Ref().SetPref("ShowAvatars", state);
+	GlobalPrefs::Ref().Set("ShowAvatars", state);
 	notifySettingsChanged();
 }
 
@@ -211,7 +286,7 @@ bool OptionsModel::GetMouseClickRequired()
 
 void OptionsModel::SetMouseClickRequired(bool mouseClickRequired)
 {
-	Client::Ref().SetPref("MouseClickRequired", mouseClickRequired);
+	GlobalPrefs::Ref().Set("MouseClickRequired", mouseClickRequired);
 	gModel->SetMouseClickRequired(mouseClickRequired);
 	notifySettingsChanged();
 }
@@ -223,7 +298,7 @@ bool OptionsModel::GetIncludePressure()
 
 void OptionsModel::SetIncludePressure(bool includePressure)
 {
-	Client::Ref().SetPref("Simulation.IncludePressure", includePressure);
+	GlobalPrefs::Ref().Set("Simulation.IncludePressure", includePressure);
 	gModel->SetIncludePressure(includePressure);
 	notifySettingsChanged();
 }
@@ -235,7 +310,7 @@ bool OptionsModel::GetPerfectCircle()
 
 void OptionsModel::SetPerfectCircle(bool perfectCircle)
 {
-	Client::Ref().SetPref("PerfectCircleBrush", perfectCircle);
+	GlobalPrefs::Ref().Set("PerfectCircleBrush", perfectCircle);
 	gModel->SetPerfectCircle(perfectCircle);
 	notifySettingsChanged();
 }
@@ -247,7 +322,7 @@ bool OptionsModel::GetMomentumScroll()
 
 void OptionsModel::SetMomentumScroll(bool state)
 {
-	Client::Ref().SetPref("MomentumScroll", state);
+	GlobalPrefs::Ref().Set("MomentumScroll", state);
 	ui::Engine::Ref().MomentumScroll = state;
 	notifySettingsChanged();
 }

@@ -1,72 +1,61 @@
 #include "Engine.h"
-
+#include "Config.h"
+#include "PowderToySDL.h"
+#include "Window.h"
+#include "common/platform/Platform.h"
+#include "graphics/Graphics.h"
+#include "gui/dialogues/ConfirmPrompt.h"
 #include <cmath>
 #include <cstring>
-
-#include "Config.h"
-#include "PowderToy.h"
-#include "Window.h"
-
-#include "common/Platform.h"
-#include "graphics/Graphics.h"
-
-#include "gui/dialogues/ConfirmPrompt.h"
 
 using namespace ui;
 
 Engine::Engine():
-	FpsLimit(60.0f),
 	drawingFrequencyLimit(0),
-	Scale(1),
-	Fullscreen(false),
 	FrameIndex(0),
-	altFullscreen(false),
-	resizable(false),
-	lastBuffer(NULL),
 	state_(NULL),
 	windowTargetPosition(0, 0),
-	break_(false),
 	FastQuit(1),
 	lastTick(0),
 	mouseb_(0),
 	mousex_(0),
 	mousey_(0),
 	mousexp_(0),
-	mouseyp_(0),
-	maxWidth(0),
-	maxHeight(0)
+	mouseyp_(0)
 {
+	SetFpsLimit(FpsLimitExplicit{ 60.0f });
 }
 
 Engine::~Engine()
 {
 	delete state_;
 	//Dispose of any Windows.
-	while(!windows.empty())
+	while (!windows.empty())
 	{
-		delete windows.top();
-		windows.pop();
+		delete windows.back();
+		windows.pop_back();
 	}
-	free(lastBuffer);
 }
 
-void Engine::Begin(int width, int height)
+void Engine::SetFpsLimit(FpsLimit newFpsLimit)
+{
+	fpsLimit = newFpsLimit;
+	::SetFpsLimit(fpsLimit);
+	// Populate dt with whatever that makes any sort of sense.
+	if (auto *explicitFpsLimit = std::get_if<FpsLimitExplicit>(&fpsLimit))
+	{
+		SetFps(explicitFpsLimit->value);
+	}
+	else
+	{
+		SetFps(1);
+	}
+}
+
+void Engine::Begin()
 {
 	//engine is now ready
 	running_ = true;
-
-	width_ = width;
-	height_ = height;
-}
-
-void Engine::Break()
-{
-	break_ = true;
-}
-
-void Engine::UnBreak()
-{
-	break_ = false;
 }
 
 void Engine::Exit()
@@ -77,24 +66,32 @@ void Engine::Exit()
 
 void Engine::ConfirmExit()
 {
-	new ConfirmPrompt("You are about to quit", "Are you sure you want to exit the game?", { [] {
-		ui::Engine::Ref().Exit();
-	} });
+	if (!confirmingExit)
+	{
+		confirmingExit = true;
+		new ConfirmPrompt("You are about to quit", "Are you sure you want to exit the game?", { [] {
+			ui::Engine::Ref().Exit();
+		}, [this] {
+			confirmingExit = false;
+		} });
+	}
 }
 
 void Engine::ShowWindow(Window * window)
 {
-	windowOpenState = 0;
+	CloseWindowAndEverythingAbove(window);
 	if (state_)
 		ignoreEvents = true;
 	if(window->Position.X==-1)
 	{
-		window->Position.X = (width_-window->Size.X)/2;
+		window->Position.X = (g->Size().X - window->Size.X) / 2;
 	}
 	if(window->Position.Y==-1)
 	{
-		window->Position.Y = (height_-window->Size.Y)/2;
+		window->Position.Y = (g->Size().Y - window->Size.Y) / 2;
 	}
+	window->Size = window->Size.Min(g->Size());
+	window->Position = window->Position.Clamp(RectBetween<int>({0, 0}, g->Size()));
 	/*if(window->Position.Y > 0)
 	{
 		windowTargetPosition = window->Position;
@@ -102,17 +99,10 @@ void Engine::ShowWindow(Window * window)
 	}*/
 	if(state_)
 	{
-		if(lastBuffer)
-		{
-			prevBuffers.push(lastBuffer);
-		}
-		lastBuffer = (pixel*)malloc((width_ * height_) * PIXELSIZE);
+		frozenGraphics.emplace(FrozenGraphics{0, std::make_unique<pixel []>(g->Size().X * g->Size().Y)});
+		std::copy_n(g->Data(), g->Size().X * g->Size().Y, frozenGraphics.top().screen.get());
 
-#ifndef OGLI
-		memcpy(lastBuffer, g->vid, (width_ * height_) * PIXELSIZE);
-#endif
-
-		windows.push(state_);
+		windows.push_back(state_);
 		mousePositions.push(ui::Point(mousex_, mousey_));
 	}
 	if(state_)
@@ -122,22 +112,31 @@ void Engine::ShowWindow(Window * window)
 
 }
 
+void Engine::CloseWindowAndEverythingAbove(Window *window)
+{
+	if (window == state_)
+	{
+		CloseWindow();
+		return;
+	}
+	auto it = std::find(windows.begin(), windows.end(), window);
+	if (it != windows.end())
+	{
+		auto toPop = int(windows.end() - it) + 1; // including state_
+		for (int i = 0; i < toPop; ++i)
+		{
+			CloseWindow();
+		}
+	}
+}
+
 int Engine::CloseWindow()
 {
 	if(!windows.empty())
 	{
-		if (lastBuffer)
-		{
-			free(lastBuffer);
-			lastBuffer = NULL;
-		}
-		if(!prevBuffers.empty())
-		{
-			lastBuffer = prevBuffers.top();
-			prevBuffers.pop();
-		}
-		state_ = windows.top();
-		windows.pop();
+		frozenGraphics.pop();
+		state_ = windows.back();
+		windows.pop_back();
 
 		if(state_)
 			state_->DoFocus();
@@ -174,17 +173,6 @@ int Engine::CloseWindow()
 	}
 }*/
 
-void Engine::SetSize(int width, int height)
-{
-	width_ = width;
-	height_ = height;
-}
-
-void Engine::SetMaxSize(int width, int height)
-{
-	maxWidth = width;
-	maxHeight = height;
-}
 
 void Engine::Tick()
 {
@@ -213,15 +201,21 @@ void Engine::Tick()
 
 void Engine::Draw()
 {
-	if(lastBuffer && !(state_ && state_->Position.X == 0 && state_->Position.Y == 0 && state_->Size.X == width_ && state_->Size.Y == height_))
+	if (!frozenGraphics.empty() && !(state_ && RectSized(state_->Position, state_->Size) == g->Size().OriginRect()))
 	{
-		g->Clear();
-#ifndef OGLI
-		memcpy(g->vid, lastBuffer, (width_ * height_) * PIXELSIZE);
-		if(windowOpenState < 20)
-			windowOpenState++;
-		g->fillrect(0, 0, width_, height_, 0, 0, 0, int(255-std::pow(.98, windowOpenState)*255));
-#endif
+		auto &frozen = frozenGraphics.top();
+		std::copy_n(frozen.screen.get(), g->Size().X * g->Size().Y, g->Data());
+		if (frozen.fadeTicks <= maxFadeTicks)
+		{
+			// from 0x00 at 0 to about 0x54 at 20
+			auto alpha = uint8_t((1 - std::pow(0.98, frozen.fadeTicks)) * 0xFF);
+			g->BlendFilledRect(g->Size().OriginRect(), 0x000000_rgb .WithAlpha(alpha));
+		}
+		// If this is the last frame in the fade, save what the faded image looks like
+		if (frozen.fadeTicks == maxFadeTicks)
+			std::copy_n(g->Data(), g->Size().X * g->Size().Y, frozen.screen.get());
+		if (frozen.fadeTicks <= maxFadeTicks)
+			frozen.fadeTicks++;
 	}
 	else
 	{
@@ -238,10 +232,14 @@ void Engine::Draw()
 void Engine::SetFps(float fps)
 {
 	this->fps = fps;
-	if(FpsLimit > 2.0f)
+	if (std::holds_alternative<FpsLimitExplicit>(fpsLimit))
+	{
 		this->dt = 60/fps;
+	}
 	else
+	{
 		this->dt = 1.0f;
+	}
 }
 
 void Engine::onKeyPress(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt)
@@ -282,24 +280,29 @@ void Engine::onTextEditing(String text, int start)
 		//   arrives. We also forward a textediting event on every packet,
 		//   which is redundant, but should be okay, as textediting events are
 		//   not supposed to have an effect on the actual text being edited.
-		if (start == 0)
+		// * We define a first-y looking packet as one with a start parameter
+		//   lower than or equal to the start parameter of the previous packet.
+		//   This is general enough that it seems to work around the bugs
+		//   of all SDL input method backends.
+		if (start <= lastTextEditingStart)
 		{
 			textEditingBuf.clear();
 		}
+		lastTextEditingStart = start;
 		textEditingBuf.append(text);
 		if (state_ && !ignoreEvents)
 			state_->DoTextEditing(textEditingBuf);
 	}
 }
 
-void Engine::onMouseClick(int x, int y, unsigned button)
+void Engine::onMouseDown(int x, int y, unsigned button)
 {
 	mouseb_ |= button;
 	if (state_ && !ignoreEvents)
 		state_->DoMouseDown(x, y, button);
 }
 
-void Engine::onMouseUnclick(int x, int y, unsigned button)
+void Engine::onMouseUp(int x, int y, unsigned button)
 {
 	mouseb_ &= ~button;
 	if (state_ && !ignoreEvents)
@@ -328,11 +331,6 @@ void Engine::onMouseWheel(int x, int y, int delta)
 {
 	if (state_ && !ignoreEvents)
 		state_->DoMouseWheel(x, y, delta);
-}
-
-void Engine::onResize(int newWidth, int newHeight)
-{
-	SetSize(newWidth, newHeight);
 }
 
 void Engine::onClose()
@@ -369,5 +367,5 @@ void Engine::StopTextInput()
 
 void Engine::TextInputRect(Point position, Point size)
 {
-	::SetTextInputRect(position.X * Scale, position.Y * Scale, size.X * Scale, size.Y * Scale);
+	::SetTextInputRect(position.X, position.Y, size.X, size.Y);
 }

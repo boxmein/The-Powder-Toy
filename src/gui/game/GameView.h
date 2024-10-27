@@ -1,11 +1,17 @@
-#ifndef GAMEVIEW_H
-#define GAMEVIEW_H
-
-#include <vector>
-#include <deque>
+#pragma once
 #include "common/String.h"
 #include "gui/interface/Window.h"
 #include "simulation/Sample.h"
+#include "graphics/FindingElement.h"
+#include "graphics/RendererFrame.h"
+#include <ctime>
+#include <deque>
+#include <memory>
+#include <vector>
+#include <optional>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 enum DrawMode
 {
@@ -25,9 +31,12 @@ namespace ui
 }
 
 class SplitButton;
+class Simulation;
+struct RenderableSimulation;
 
 class MenuButton;
 class Renderer;
+struct RendererSettings;
 class VideoBuffer;
 class ToolButton;
 class GameController;
@@ -52,7 +61,6 @@ private:
 	bool wallBrush;
 	bool toolBrush;
 	bool decoBrush;
-	bool windTool;
 	int toolIndex;
 	int currentSaveType;
 	int lastMenu;
@@ -71,13 +79,17 @@ private:
 
 	bool doScreenshot;
 	int screenshotIndex;
+	time_t lastScreenshotTime;
+	int recordingIndex;
 	bool recording;
 	int recordingFolder;
 
 	ui::Point currentPoint, lastPoint;
 	GameController * c;
-	Renderer * ren;
-	Brush * activeBrush;
+	Renderer *ren = nullptr;
+	RendererSettings *rendererSettings = nullptr;
+	Simulation *sim = nullptr;
+	Brush const *activeBrush;
 	//UI Elements
 	std::vector<ui::Button*> quickOptionButtons;
 
@@ -115,16 +127,18 @@ private:
 	ui::Point currentMouse;
 	ui::Point mousePosition;
 
-	VideoBuffer * placeSaveThumb;
-	ui::Point placeSaveOffset;
+	std::unique_ptr<VideoBuffer> placeSaveThumb;
+	Mat2<int> placeSaveTransform = Mat2<int>::Identity;
+	Vec2<int> placeSaveTranslate = Vec2<int>::Zero;
+	void TranslateSave(Vec2<int> addToTranslate);
+	void TransformSave(Mat2<int> mulToTransform);
+	void ApplyTransformPlaceSave();
 
 	SimulationSample sample;
 
 	void updateToolButtonScroll();
 
 	void SetSaveButtonTooltips();
-
-	void screenshot();
 
 	void enableShiftBehaviour();
 	void disableShiftBehaviour();
@@ -134,9 +148,35 @@ private:
 	void disableAltBehaviour();
 	void UpdateDrawMode();
 	void UpdateToolStrength();
+
+	Vec2<int> PlaceSavePos() const;
+
+	std::optional<FindingElement> FindingElementCandidate() const;
+	enum RendererThreadState
+	{
+		rendererThreadAbsent,
+		rendererThreadRunning,
+		rendererThreadPaused,
+		rendererThreadStopping,
+	};
+	RendererThreadState rendererThreadState = rendererThreadAbsent;
+	std::thread rendererThread;
+	std::mutex rendererThreadMx;
+	std::condition_variable rendererThreadCv;
+	bool rendererThreadOwnsRenderer = false;
+	void StartRendererThread();
+	void StopRendererThread();
+	void RendererThread();
+	void WaitForRendererThread();
+	void DispatchRendererThread();
+	std::unique_ptr<RenderableSimulation> rendererThreadSim;
+	std::unique_ptr<RendererFrame> rendererThreadResult;
+	int foundParticles = 0;
+	const RendererFrame *rendererFrame = nullptr;
+
 public:
 	GameView();
-	virtual ~GameView();
+	~GameView();
 
 	//Breaks MVC, but any other way is going to be more of a mess.
 	ui::Point GetMousePosition();
@@ -155,16 +195,16 @@ public:
 	bool AltBehaviour(){ return altBehaviour; }
 	SelectMode GetSelectMode() { return selectMode; }
 	void BeginStampSelection();
-	ui::Point GetPlaceSaveOffset() { return placeSaveOffset; }
-	void SetPlaceSaveOffset(ui::Point offset) { placeSaveOffset = offset; }
+	ByteString TakeScreenshot(int captureUI, int fileType);
 	int Record(bool record);
 
 	//all of these are only here for one debug lines
 	bool GetMouseDown() { return isMouseDown; }
-	bool GetDrawingLine() { return drawMode == DrawLine && isMouseDown; }
+	bool GetDrawingLine() { return drawMode == DrawLine && isMouseDown && selectMode == SelectNone; }
 	bool GetDrawSnap() { return drawSnap; }
 	ui::Point GetLineStartCoords() { return drawPoint1; }
 	ui::Point GetLineFinishCoords() { return currentMouse; }
+	ui::Point GetCurrentMouse() { return currentMouse; }
 	ui::Point lineSnapCoords(ui::Point point1, ui::Point point2);
 	ui::Point rectSnapCoords(ui::Point point1, ui::Point point2);
 
@@ -175,7 +215,7 @@ public:
 	void NotifySaveChanged(GameModel * sender);
 	void NotifyBrushChanged(GameModel * sender);
 	void NotifyMenuListChanged(GameModel * sender);
-	void NotifyToolListChanged(GameModel * sender);
+	void NotifyActiveMenuToolListChanged(GameModel * sender);
 	void NotifyActiveToolsChanged(GameModel * sender);
 	void NotifyUserChanged(GameModel * sender);
 	void NotifyZoomChanged(GameModel * sender);
@@ -184,6 +224,7 @@ public:
 	void NotifyColourPresetsChanged(GameModel * sender);
 	void NotifyColourActivePresetChanged(GameModel * sender);
 	void NotifyPlaceSaveChanged(GameModel * sender);
+	void NotifyTransformedPlaceSaveChanged(GameModel *sender);
 	void NotifyNotificationsChanged(GameModel * sender);
 	void NotifyLogChanged(GameModel * sender, String entry);
 	void NotifyToolTipChanged(GameModel * sender);
@@ -218,6 +259,20 @@ public:
 	void DoKeyRelease(int key, int scan, bool repeat, bool shift, bool ctrl, bool alt) override;
 
 	class OptionListener;
-};
 
-#endif // GAMEVIEW_H
+	void SkipIntroText();
+	pixel GetPixelUnderMouse() const;
+
+	const RendererFrame &GetRendererFrame() const
+	{
+		return *rendererFrame;
+	}
+	// Call this before accessing Renderer "out of turn", e.g. from RenderView or GameModel. This *does not*
+	// include OptionsModel or Lua setting functions because they only access the RendererSettings
+	// in GameModel, or Lua drawing functions because they only access Renderer in eventTraitSimGraphics
+	// and *SimDraw events, and the renderer thread gets paused anyway if there are handlers
+	// installed for such events.
+	void PauseRendererThread();
+
+	void RenderSimulation(const RenderableSimulation &sim, bool handleEvents);
+};

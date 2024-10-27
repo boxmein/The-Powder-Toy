@@ -3,6 +3,9 @@
 #include "bzip2/bz2wrap.h"
 #include "font.bz2.h"
 
+#include <array>
+#include <cstdint>
+
 unsigned char *font_data = nullptr;
 unsigned int *font_ptrs = nullptr;
 unsigned int (*font_ranges)[2] = nullptr;
@@ -26,9 +29,9 @@ static bool InitFontData()
 	}
 	int first = -1;
 	int last = -1;
-	char *begin = &fontDataBuf[0];
-	char *ptr = &fontDataBuf[0];
-	char *end = &fontDataBuf[0] + fontDataBuf.size();
+	char *begin = fontDataBuf.data();
+	char *ptr = fontDataBuf.data();
+	char *end = fontDataBuf.data() + fontDataBuf.size();
 	while (ptr != end)
 	{
 		if (ptr + 4 > end)
